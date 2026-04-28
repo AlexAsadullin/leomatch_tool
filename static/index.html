@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>leodv</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>leodv</h1>
+    <div class="mode">
+      <button id="modeBtn" class="mode-btn" type="button">Только новые: OFF</button>
+      <span class="counter">Авто-дизлайки: <b id="autoCount">0</b></span>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="warning" class="card warning hidden">
+      <h2>Бот прислал не-анкету</h2>
+      <p>Откройте Telegram и выполните требуемые действия в чате с <code>@leomatchbot</code>. Кнопки заблокированы до получения новой анкеты.</p>
+    </section>
+
+    <section id="empty" class="card empty">
+      <p>Ожидание анкеты от бота…</p>
+    </section>
+
+    <section id="profile" class="card hidden">
+      <div id="media" class="media"></div>
+      <p class="seen">Встречалась <b id="seen">1</b> раз</p>
+      <pre id="desc" class="desc"></pre>
+      <button id="descMore" class="more-btn hidden" type="button">показать полный текст</button>
+    </section>
+  </main>
+
+  <div id="actions" class="actions">
+    <div class="actions-inner">
+      <button id="dislikeBtn" class="btn dislike" type="button">👎 Дизлайк</button>
+      <button id="likeBtn" class="btn like" type="button">❤️ Лайк</button>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

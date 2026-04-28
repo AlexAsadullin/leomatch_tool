@@ -11,6 +11,8 @@ class AppState:
     warning: bool = False
     only_new_mode: bool = False
     auto_dislike_count: int = 0
+    like_count: int = 0
+    dislike_count: int = 0
     busy: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -20,6 +22,8 @@ class AppState:
             "warning": self.warning,
             "only_new_mode": self.only_new_mode,
             "auto_dislike_count": self.auto_dislike_count,
+            "like_count": self.like_count,
+            "dislike_count": self.dislike_count,
             "busy": self.busy,
         }
 

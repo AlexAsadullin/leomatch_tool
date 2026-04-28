@@ -47,6 +47,12 @@ def insert_profile(description: str, media_hash: str) -> int:
         return int(cur.lastrowid)
 
 
+def count_profiles() -> int:
+    with _conn() as c:
+        cur = c.execute("SELECT COUNT(*) AS n FROM profiles")
+        return int(cur.fetchone()["n"])
+
+
 def bump_seen(profile_id: int) -> int:
     with _conn() as c:
         c.execute(

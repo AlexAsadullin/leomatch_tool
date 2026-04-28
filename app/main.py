@@ -47,7 +47,9 @@ async def index():
 
 @app.get("/api/state")
 async def get_state():
-    return state.snapshot()
+    snap = state.snapshot()
+    snap["total_profiles"] = db.count_profiles()
+    return snap
 
 
 @app.post("/api/like")
@@ -70,6 +72,10 @@ async def _react(text: str):
     finally:
         async with state.lock:
             state.current_profile = None
+            if text == "❤️":
+                state.like_count += 1
+            elif text == "👎":
+                state.dislike_count += 1
     return {"ok": True}
 
 

@@ -11,6 +11,9 @@
     dislikeBtn: document.getElementById("dislikeBtn"),
     modeBtn: document.getElementById("modeBtn"),
     autoCount: document.getElementById("autoCount"),
+    likeCount: document.getElementById("likeCount"),
+    dislikeCount: document.getElementById("dislikeCount"),
+    totalCount: document.getElementById("totalCount"),
   };
 
   const DESC_LIMIT = 50;
@@ -90,6 +93,9 @@
     els.modeBtn.classList.toggle("active", state.only_new_mode);
     els.modeBtn.textContent = `Только новые: ${state.only_new_mode ? "ON" : "OFF"}`;
     els.autoCount.textContent = String(state.auto_dislike_count);
+    els.likeCount.textContent = String(state.like_count ?? 0);
+    els.dislikeCount.textContent = String(state.dislike_count ?? 0);
+    els.totalCount.textContent = String(state.total_profiles ?? 0);
   }
 
   async function fetchState() {

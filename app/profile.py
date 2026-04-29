@@ -26,6 +26,16 @@ def _has_media(msg: Message) -> bool:
     return _is_photo(msg) or _is_video(msg)
 
 
+def _parse_age(description: str) -> int | None:
+    parts = description.split(",")
+    if len(parts) < 2:
+        return None
+    try:
+        return int(parts[1].strip())
+    except ValueError:
+        return None
+
+
 def _extract_text(messages: list[Message]) -> str:
     for m in messages:
         text = (m.message or "").strip()
@@ -75,6 +85,16 @@ def _compute_first_media_hash(downloaded: list[tuple[Message, Path]]) -> str:
     return hash_video_first_frame(videos[0][1])
 
 
+def _auto_dislike_reason(description: str, seen_count: int) -> str | None:
+    if state.only_new_mode and seen_count > 1:
+        return "duplicate"
+    if state.age_filter_active:
+        age = _parse_age(description)
+        if age is None or not (state.age_min <= age <= state.age_max):
+            return "age"
+    return None
+
+
 async def handle_messages(messages: list[Message]) -> None:
     """Pipeline entry point. Called for each unit (single message or album) from the bot."""
     async with state.lock:
@@ -118,19 +138,17 @@ async def _process(messages: list[Message]) -> None:
                 shutil.move(str(src), str(dst))
                 files.append(dst)
             shutil.rmtree(temp_dir, ignore_errors=True)
-            state.current_profile = _profile_payload(profile_id, description, files, 1)
-            state.warning = False
-            log.info("New profile id=%s seen_count=1", profile_id)
-            return
+            seen_count = 1
+        else:
+            profile_id = int(existing["id"])
+            seen_count = db.bump_seen(profile_id)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            existing_dir = MEDIA_DIR / str(profile_id)
+            files = list(existing_dir.iterdir()) if existing_dir.exists() else []
 
-        profile_id = int(existing["id"])
-        seen_count = db.bump_seen(profile_id)
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        existing_dir = MEDIA_DIR / str(profile_id)
-        files = list(existing_dir.iterdir()) if existing_dir.exists() else []
-
-        if state.only_new_mode:
-            log.info("Auto-disliking duplicate profile id=%s (seen=%s)", profile_id, seen_count)
+        reason = _auto_dislike_reason(description, seen_count)
+        if reason is not None:
+            log.info("Auto-disliking profile id=%s seen=%s reason=%s", profile_id, seen_count, reason)
             await tg.send_reaction("👎")
             state.auto_dislike_count += 1
             state.current_profile = None
@@ -139,7 +157,7 @@ async def _process(messages: list[Message]) -> None:
 
         state.current_profile = _profile_payload(profile_id, description, files, seen_count)
         state.warning = False
-        log.info("Repeat profile id=%s seen_count=%s", profile_id, seen_count)
+        log.info("Profile id=%s seen_count=%s shown", profile_id, seen_count)
     except Exception:
         log.exception("Failed to process messages %s", [m.id for m in messages])
         shutil.rmtree(temp_dir, ignore_errors=True)

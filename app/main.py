@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -85,4 +86,27 @@ async def toggle_only_new():
         state.only_new_mode = not state.only_new_mode
         if state.only_new_mode:
             state.auto_dislike_count = 0
+        return state.snapshot()
+
+
+class AgeFilterPayload(BaseModel):
+    min: int | None = None
+    max: int | None = None
+
+
+@app.post("/api/age-filter")
+async def set_age_filter(payload: AgeFilterPayload):
+    async with state.lock:
+        if payload.min is None and payload.max is None:
+            state.age_min = None
+            state.age_max = None
+            return state.snapshot()
+        if payload.min is None or payload.max is None:
+            raise HTTPException(status_code=400, detail="Both min and max must be provided")
+        if payload.min < 0 or payload.max < 0:
+            raise HTTPException(status_code=400, detail="Age must be non-negative")
+        if payload.min > payload.max:
+            raise HTTPException(status_code=400, detail="min must be <= max")
+        state.age_min = payload.min
+        state.age_max = payload.max
         return state.snapshot()

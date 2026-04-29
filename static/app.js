@@ -14,7 +14,14 @@
     likeCount: document.getElementById("likeCount"),
     dislikeCount: document.getElementById("dislikeCount"),
     totalCount: document.getElementById("totalCount"),
+    ageForm: document.getElementById("ageForm"),
+    ageMin: document.getElementById("ageMin"),
+    ageMax: document.getElementById("ageMax"),
+    ageReset: document.getElementById("ageReset"),
+    ageError: document.getElementById("ageError"),
   };
+
+  let ageInputDirty = false;
 
   const DESC_LIMIT = 50;
   let renderedProfileId = null;
@@ -96,6 +103,13 @@
     els.likeCount.textContent = String(state.like_count ?? 0);
     els.dislikeCount.textContent = String(state.dislike_count ?? 0);
     els.totalCount.textContent = String(state.total_profiles ?? 0);
+
+    const filterActive = state.age_min != null && state.age_max != null;
+    els.ageForm.classList.toggle("active", filterActive);
+    if (!ageInputDirty) {
+      els.ageMin.value = state.age_min == null ? "" : state.age_min;
+      els.ageMax.value = state.age_max == null ? "" : state.age_max;
+    }
   }
 
   async function fetchState() {
@@ -134,6 +148,77 @@
     descExpanded = !descExpanded;
     applyDescView();
   });
+
+  function showAgeError(msg) {
+    if (!msg) {
+      els.ageError.classList.add("hidden");
+      els.ageError.textContent = "";
+    } else {
+      els.ageError.classList.remove("hidden");
+      els.ageError.textContent = msg;
+    }
+  }
+
+  function parseAgeInput(el) {
+    const raw = el.value.trim();
+    if (raw === "") return { empty: true, value: null };
+    if (!/^\d+$/.test(raw)) return { empty: false, value: null };
+    return { empty: false, value: parseInt(raw, 10) };
+  }
+
+  els.ageMin.addEventListener("input", () => { ageInputDirty = true; });
+  els.ageMax.addEventListener("input", () => { ageInputDirty = true; });
+
+  els.ageForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const a = parseAgeInput(els.ageMin);
+    const b = parseAgeInput(els.ageMax);
+    if (a.empty && b.empty) {
+      showAgeError(null);
+      await sendAgeFilter(null, null);
+      return;
+    }
+    if (a.empty || b.empty) {
+      showAgeError("заполните оба поля");
+      return;
+    }
+    if (a.value === null || b.value === null) {
+      showAgeError("только целые числа");
+      return;
+    }
+    if (a.value < 0 || b.value < 0) {
+      showAgeError("возраст ≥ 0");
+      return;
+    }
+    if (a.value > b.value) {
+      showAgeError("мин должен быть ≤ макс");
+      return;
+    }
+    showAgeError(null);
+    await sendAgeFilter(a.value, b.value);
+  });
+
+  els.ageReset.addEventListener("click", async () => {
+    els.ageMin.value = "";
+    els.ageMax.value = "";
+    showAgeError(null);
+    await sendAgeFilter(null, null);
+  });
+
+  async function sendAgeFilter(min, max) {
+    const r = await fetch("/api/age-filter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ min, max }),
+    });
+    if (r.ok) {
+      ageInputDirty = false;
+      render(await r.json());
+    } else {
+      const err = await r.json().catch(() => ({}));
+      showAgeError(err.detail || "ошибка");
+    }
+  }
 
   fetchState();
   setInterval(fetchState, 1000);

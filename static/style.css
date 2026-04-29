@@ -22,7 +22,21 @@ body {
 
 .topbar h1 { margin: 0; font-size: 20px; }
 
-.mode { display: flex; align-items: center; gap: 16px; }
+.mode { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.age-filter { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.age-filter input {
+  width: 60px;
+  padding: 6px 8px;
+  border: 1px solid #c7c7cc;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.age-filter.active input {
+  border-color: #ff453a;
+  background: #fff5f5;
+}
+.age-error { color: #ff453a; font-size: 13px; }
 
 .mode-btn {
   padding: 8px 14px;

@@ -11,6 +11,14 @@
     <h1>leodv</h1>
     <div class="mode">
       <button id="modeBtn" class="mode-btn" type="button">Только новые: OFF</button>
+      <form id="ageForm" class="age-filter">
+        <input id="ageMin" type="number" step="1" min="0" inputmode="numeric" placeholder="мин" />
+        <span>≤ age ≤</span>
+        <input id="ageMax" type="number" step="1" min="0" inputmode="numeric" placeholder="макс" />
+        <button type="submit" class="mode-btn" id="ageApply">OK</button>
+        <button type="button" class="mode-btn" id="ageReset">×</button>
+      </form>
+      <span id="ageError" class="age-error hidden"></span>
       <span class="counter">❤️ <b id="likeCount">0</b></span>
       <span class="counter">👎 <b id="dislikeCount">0</b></span>
       <span class="counter">Авто 👎 <b id="autoCount">0</b></span>

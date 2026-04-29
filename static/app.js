@@ -9,6 +9,7 @@
     seen: document.getElementById("seen"),
     likeBtn: document.getElementById("likeBtn"),
     dislikeBtn: document.getElementById("dislikeBtn"),
+    autoDislikeBtn: document.getElementById("autoDislikeBtn"),
     modeBtn: document.getElementById("modeBtn"),
     autoCount: document.getElementById("autoCount"),
     likeCount: document.getElementById("likeCount"),
@@ -19,6 +20,11 @@
     ageMax: document.getElementById("ageMax"),
     ageReset: document.getElementById("ageReset"),
     ageError: document.getElementById("ageError"),
+    autoLikeBtn: document.getElementById("autoLikeBtn"),
+    modal: document.getElementById("modal"),
+    modalText: document.getElementById("modalText"),
+    modalYes: document.getElementById("modalYes"),
+    modalNo: document.getElementById("modalNo"),
   };
 
   let ageInputDirty = false;
@@ -97,6 +103,10 @@
     els.likeBtn.disabled = buttonsLocked;
     els.dislikeBtn.disabled = buttonsLocked;
 
+    els.autoDislikeBtn.classList.toggle("active", state.auto_dislike_mode);
+    els.autoDislikeBtn.textContent = `Авто-дизлайк: ${state.auto_dislike_mode ? "ON" : "OFF"}`;
+    els.autoLikeBtn.classList.toggle("active", state.auto_like_mode);
+    els.autoLikeBtn.textContent = `Авто-лайк: ${state.auto_like_mode ? "ON" : "OFF"}`;
     els.modeBtn.classList.toggle("active", state.only_new_mode);
     els.modeBtn.textContent = `Только новые: ${state.only_new_mode ? "ON" : "OFF"}`;
     els.autoCount.textContent = String(state.auto_dislike_count);
@@ -140,6 +150,46 @@
 
   els.likeBtn.addEventListener("click", () => react("/api/like"));
   els.dislikeBtn.addEventListener("click", () => react("/api/dislike"));
+  let modalOnYes = null;
+
+  function showModal(text, yesClass, onYes) {
+    els.modalText.textContent = text;
+    els.modalYes.className = `modal-btn ${yesClass}`;
+    modalOnYes = onYes;
+    setHidden(els.modal, false);
+  }
+
+  function closeModal() { setHidden(els.modal, true); modalOnYes = null; }
+
+  els.modalYes.addEventListener("click", async () => {
+    const cb = modalOnYes;
+    closeModal();
+    if (cb) await cb();
+  });
+  els.modalNo.addEventListener("click", closeModal);
+  els.modal.addEventListener("click", (e) => { if (e.target === els.modal) closeModal(); });
+
+  els.autoDislikeBtn.addEventListener("click", () => {
+    if (els.autoDislikeBtn.classList.contains("active")) {
+      fetch("/api/auto-dislike/toggle", { method: "POST" }).then(r => r.ok && r.json()).then(s => s && render(s));
+    } else {
+      showModal("Включить авто-дизлайк?\n\nВсе анкеты будут автоматически дизлайкнуты.", "modal-btn-dislike", async () => {
+        const r = await fetch("/api/auto-dislike/toggle", { method: "POST" });
+        if (r.ok) render(await r.json());
+      });
+    }
+  });
+
+  els.autoLikeBtn.addEventListener("click", () => {
+    if (els.autoLikeBtn.classList.contains("active")) {
+      fetch("/api/auto-like/toggle", { method: "POST" }).then(r => r.ok && r.json()).then(s => s && render(s));
+    } else {
+      showModal("Включить авто-лайк?\n\nВсе новые анкеты будут автоматически лайкнуты.", "modal-btn-like", async () => {
+        const r = await fetch("/api/auto-like/toggle", { method: "POST" });
+        if (r.ok) render(await r.json());
+      });
+    }
+  });
   els.modeBtn.addEventListener("click", async () => {
     const r = await fetch("/api/only-new/toggle", { method: "POST" });
     if (r.ok) render(await r.json());

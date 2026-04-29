@@ -10,6 +10,8 @@
   <header class="topbar">
     <h1>leodv</h1>
     <div class="mode">
+      <button id="autoDislikeBtn" class="mode-btn" type="button">Авто-дизлайк: OFF</button>
+      <button id="autoLikeBtn" class="mode-btn" type="button">Авто-лайк: OFF</button>
       <button id="modeBtn" class="mode-btn" type="button">Только новые: OFF</button>
       <form id="ageForm" class="age-filter">
         <input id="ageMin" type="number" step="1" min="0" inputmode="numeric" placeholder="мин" />
@@ -48,6 +50,17 @@
     <div class="actions-inner">
       <button id="dislikeBtn" class="btn dislike" type="button">👎 Дизлайк</button>
       <button id="likeBtn" class="btn like" type="button">❤️ Лайк</button>
+    </div>
+  </div>
+
+  <!-- Shared confirmation modal -->
+  <div id="modal" class="modal-overlay hidden">
+    <div class="modal">
+      <p id="modalText" class="modal-text"></p>
+      <div class="modal-actions">
+        <button id="modalNo" class="modal-btn modal-btn-cancel" type="button">Нет</button>
+        <button id="modalYes" class="modal-btn" type="button">Да</button>
+      </div>
     </div>
   </div>
 

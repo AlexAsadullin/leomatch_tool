@@ -29,6 +29,12 @@ def init() -> None:
         c.executescript(_SCHEMA)
 
 
+def find_profile_by_description(description: str) -> Optional[sqlite3.Row]:
+    with _conn() as c:
+        cur = c.execute("SELECT * FROM profiles WHERE description = ?", (description,))
+        return cur.fetchone()
+
+
 def find_profile(description: str, media_hash: str) -> Optional[sqlite3.Row]:
     with _conn() as c:
         cur = c.execute(

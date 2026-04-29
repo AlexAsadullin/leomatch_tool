@@ -38,6 +38,37 @@ body {
 }
 .age-error { color: #ff453a; font-size: 13px; }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: #fff;
+  border-radius: 14px;
+  padding: 28px 24px 20px;
+  width: 320px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+.modal-text { margin: 0 0 20px; font-size: 16px; line-height: 1.4; text-align: center; }
+.modal-actions { display: flex; gap: 10px; }
+.modal-btn {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.modal-btn-cancel { background: #e5e5ea; color: #1c1c1e; }
+.modal-btn-dislike { background: #ff453a; color: #fff; }
+.modal-btn-like    { background: #34c759; color: #fff; }
+
 .mode-btn {
   padding: 8px 14px;
   border: 1px solid #c7c7cc;

@@ -80,6 +80,24 @@ async def _react(text: str):
     return {"ok": True}
 
 
+@app.post("/api/auto-dislike/toggle")
+async def toggle_auto_dislike():
+    async with state.lock:
+        state.auto_dislike_mode = not state.auto_dislike_mode
+        if state.auto_dislike_mode:
+            state.auto_like_mode = False
+        return state.snapshot()
+
+
+@app.post("/api/auto-like/toggle")
+async def toggle_auto_like():
+    async with state.lock:
+        state.auto_like_mode = not state.auto_like_mode
+        if state.auto_like_mode:
+            state.auto_dislike_mode = False
+        return state.snapshot()
+
+
 @app.post("/api/only-new/toggle")
 async def toggle_only_new():
     async with state.lock:

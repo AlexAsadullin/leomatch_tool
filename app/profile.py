@@ -6,6 +6,8 @@ from pathlib import Path
 
 from telethon.tl.custom import Message
 
+LONG_DESC_THRESHOLD = 60
+
 from . import db, tg
 from .config import MEDIA_DIR, PENDING_DIR
 from .hashing import hash_video_first_frame, sha256_file
@@ -86,6 +88,8 @@ def _compute_first_media_hash(downloaded: list[tuple[Message, Path]]) -> str:
 
 
 def _auto_dislike_reason(description: str, seen_count: int) -> str | None:
+    if state.auto_dislike_mode:
+        return "auto"
     if state.only_new_mode and seen_count > 1:
         return "duplicate"
     if state.age_filter_active:
@@ -126,7 +130,10 @@ async def _process(messages: list[Message]) -> None:
             return
 
         media_hash = _compute_first_media_hash(downloaded)
-        existing = db.find_profile(description, media_hash)
+        if len(description) >= LONG_DESC_THRESHOLD:
+            existing = db.find_profile_by_description(description)
+        else:
+            existing = db.find_profile(description, media_hash)
 
         if existing is None:
             profile_id = db.insert_profile(description, media_hash)
@@ -151,6 +158,13 @@ async def _process(messages: list[Message]) -> None:
             log.info("Auto-disliking profile id=%s seen=%s reason=%s", profile_id, seen_count, reason)
             await tg.send_reaction("👎")
             state.auto_dislike_count += 1
+            state.current_profile = None
+            state.warning = False
+            return
+
+        if state.auto_like_mode:
+            log.info("Auto-liking profile id=%s seen=%s", profile_id, seen_count)
+            await tg.send_reaction("❤️")
             state.current_profile = None
             state.warning = False
             return

@@ -10,6 +10,8 @@ class AppState:
     current_profile: Optional[dict] = None
     warning: bool = False
     only_new_mode: bool = False
+    auto_dislike_mode: bool = False
+    auto_like_mode: bool = False
     auto_dislike_count: int = 0
     like_count: int = 0
     dislike_count: int = 0
@@ -27,6 +29,8 @@ class AppState:
             "profile": self.current_profile,
             "warning": self.warning,
             "only_new_mode": self.only_new_mode,
+            "auto_dislike_mode": self.auto_dislike_mode,
+            "auto_like_mode": self.auto_like_mode,
             "auto_dislike_count": self.auto_dislike_count,
             "like_count": self.like_count,
             "dislike_count": self.dislike_count,

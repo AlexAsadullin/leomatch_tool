@@ -4,6 +4,6 @@ __pycache__/
 .env
 *.session
 *.session-journal
-data.db
+*.db
 media/
 .DS_Store

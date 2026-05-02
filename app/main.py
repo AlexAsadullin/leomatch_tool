@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -9,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, tg
-from .config import MEDIA_DIR, STATIC_DIR
+from .config import DB_PATH, MEDIA_DIR, STATIC_DIR
 from .profile import handle_messages
 from .state import state
 
@@ -23,6 +24,10 @@ log = logging.getLogger("leodv")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init()
+    if DB_PATH.exists():
+        backup = DB_PATH.with_name("data_backup.db")
+        shutil.copy2(DB_PATH, backup)
+        log.info("DB backed up to %s", backup)
     tg.set_handler(handle_messages)
     await tg.start()
     log.info("Telethon connected; bootstrapping latest message")

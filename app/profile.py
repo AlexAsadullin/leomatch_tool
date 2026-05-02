@@ -129,7 +129,15 @@ async def _process(messages: list[Message]) -> None:
             state.warning = True
             return
 
-        media_hash = _compute_first_media_hash(downloaded)
+        try:
+            media_hash = _compute_first_media_hash(downloaded)
+        except RuntimeError as exc:
+            log.warning("Cannot hash media, skipping profile with dislike: %s", exc)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            await tg.send_reaction("👎")
+            state.current_profile = None
+            state.warning = False
+            return
         if len(description) >= LONG_DESC_THRESHOLD:
             existing = db.find_profile_by_description(description)
         else:

@@ -169,9 +169,10 @@
   els.modalNo.addEventListener("click", closeModal);
   els.modal.addEventListener("click", (e) => { if (e.target === els.modal) closeModal(); });
 
-  els.autoDislikeBtn.addEventListener("click", () => {
+  els.autoDislikeBtn.addEventListener("click", async () => {
     if (els.autoDislikeBtn.classList.contains("active")) {
-      fetch("/api/auto-dislike/toggle", { method: "POST" }).then(r => r.ok && r.json()).then(s => s && render(s));
+      const r = await fetch("/api/auto-dislike/toggle", { method: "POST" });
+      if (r.ok) render(await r.json());
     } else {
       showModal("Включить авто-дизлайк?\n\nВсе анкеты будут автоматически дизлайкнуты.", "modal-btn-dislike", async () => {
         const r = await fetch("/api/auto-dislike/toggle", { method: "POST" });
@@ -180,9 +181,10 @@
     }
   });
 
-  els.autoLikeBtn.addEventListener("click", () => {
+  els.autoLikeBtn.addEventListener("click", async () => {
     if (els.autoLikeBtn.classList.contains("active")) {
-      fetch("/api/auto-like/toggle", { method: "POST" }).then(r => r.ok && r.json()).then(s => s && render(s));
+      const r = await fetch("/api/auto-like/toggle", { method: "POST" });
+      if (r.ok) render(await r.json());
     } else {
       showModal("Включить авто-лайк?\n\nВсе новые анкеты будут автоматически лайкнуты.", "modal-btn-like", async () => {
         const r = await fetch("/api/auto-like/toggle", { method: "POST" });

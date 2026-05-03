@@ -173,6 +173,7 @@ async def _process(messages: list[Message]) -> None:
         if state.auto_like_mode:
             log.info("Auto-liking profile id=%s seen=%s", profile_id, seen_count)
             await tg.send_reaction("❤️")
+            state.like_count += 1
             state.current_profile = None
             state.warning = False
             return

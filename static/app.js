@@ -21,6 +21,8 @@
     ageReset: document.getElementById("ageReset"),
     ageError: document.getElementById("ageError"),
     autoLikeBtn: document.getElementById("autoLikeBtn"),
+    activePhone: document.getElementById("activePhone"),
+    emptyText: document.getElementById("emptyText"),
     modal: document.getElementById("modal"),
     modalText: document.getElementById("modalText"),
     modalYes: document.getElementById("modalYes"),
@@ -87,6 +89,16 @@
     setHidden(els.profile, !hasProfile);
     setHidden(els.empty, hasProfile || isWarning);
 
+    if (state.status_message) {
+      els.emptyText.textContent = state.status_message;
+    } else if (state.auto_like_mode) {
+      els.emptyText.textContent = "автоматически лайкаю анкеты, процесс можно посмотреть в @leomatchbot";
+    } else if (state.auto_dislike_mode) {
+      els.emptyText.textContent = "наполняю базу, все анкеты получат дизлайк, процесс можно посмотреть в @leomatchbot";
+    } else {
+      els.emptyText.textContent = "Ожидание анкеты от бота…";
+    }
+
     if (hasProfile) {
       const p = state.profile;
       const isNewProfile = renderedProfileId !== p.id;
@@ -113,6 +125,7 @@
     els.likeCount.textContent = String(state.like_count ?? 0);
     els.dislikeCount.textContent = String(state.dislike_count ?? 0);
     els.totalCount.textContent = String(state.total_profiles ?? 0);
+    els.activePhone.textContent = state.active_phone || "—";
 
     const filterActive = state.age_min != null && state.age_max != null;
     els.ageForm.classList.toggle("active", filterActive);

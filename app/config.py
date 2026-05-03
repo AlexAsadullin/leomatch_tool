@@ -20,11 +20,16 @@ def _required(name: str) -> str:
 
 API_ID = int(_required("TG_API_ID"))
 API_HASH = _required("TG_API_HASH")
-PHONE = os.getenv("TG_PHONE", "")
+PHONES: list[str] = [p.strip() for p in _required("TG_PHONES").split(",") if p.strip()]
 SESSION_NAME = os.getenv("SESSION_NAME", "leodv")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "leomatchbot")
 
-SESSION_PATH = ROOT / SESSION_NAME
+
+def session_path(phone: str) -> Path:
+    digits = "".join(c for c in phone if c.isdigit())
+    return ROOT / f"{SESSION_NAME}_{digits}"
+
+
 DB_PATH = ROOT / "data.db"
 MEDIA_DIR = ROOT / "media"
 PENDING_DIR = MEDIA_DIR / "_pending"

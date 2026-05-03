@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, tg
-from .config import DB_PATH, MEDIA_DIR, STATIC_DIR
+from .config import DB_PATH, MEDIA_DIR, PHONES, STATIC_DIR
 from .profile import handle_messages
 from .state import state
 
@@ -29,7 +29,9 @@ async def lifespan(app: FastAPI):
         shutil.copy2(DB_PATH, backup)
         log.info("DB backed up to %s", backup)
     tg.set_handler(handle_messages)
-    await tg.start()
+    await tg.start(PHONES)
+    state.active_account_idx = tg.current_idx()
+    state.total_accounts = tg.total_accounts()
     log.info("Telethon connected; bootstrapping latest message")
     try:
         latest = await tg.fetch_latest_unit()
@@ -55,6 +57,7 @@ async def index():
 async def get_state():
     snap = state.snapshot()
     snap["total_profiles"] = db.count_profiles()
+    snap["active_phone"] = tg._phones[tg._current_idx] if tg._phones else ""
     return snap
 
 

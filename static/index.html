@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>leodv</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=5" />
 </head>
 <body>
   <header class="topbar">
-    <h1>leodv</h1>
-    <div class="mode">
+    <div class="topbar-row">
+      <h1>leodv</h1>
       <button id="autoDislikeBtn" class="mode-btn" type="button">Авто-дизлайк: OFF</button>
       <button id="autoLikeBtn" class="mode-btn" type="button">Авто-лайк: OFF</button>
       <button id="modeBtn" class="mode-btn" type="button">Только новые: OFF</button>
@@ -21,10 +21,15 @@
         <button type="button" class="mode-btn" id="ageReset">×</button>
       </form>
       <span id="ageError" class="age-error hidden"></span>
+    </div>
+    <div class="topbar-row">
       <span class="counter">❤️ <b id="likeCount">0</b></span>
       <span class="counter">👎 <b id="dislikeCount">0</b></span>
       <span class="counter">Авто 👎 <b id="autoCount">0</b></span>
       <span class="counter">База <b id="totalCount">0</b></span>
+    </div>
+    <div class="topbar-row topbar-phone">
+      <span class="phone-label">Аккаунт: <b id="activePhone">—</b></span>
     </div>
   </header>
 
@@ -35,7 +40,7 @@
     </section>
 
     <section id="empty" class="card empty">
-      <p>Ожидание анкеты от бота…</p>
+      <p id="emptyText">Ожидание анкеты от бота…</p>
     </section>
 
     <section id="profile" class="card hidden">
@@ -64,6 +69,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=5"></script>
 </body>
 </html>

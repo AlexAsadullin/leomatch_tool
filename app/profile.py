@@ -8,6 +8,11 @@ from telethon.tl.custom import Message
 
 LONG_DESC_THRESHOLD = 60
 
+
+def _is_limit_message(text: str) -> bool:
+    # Match without emoji to avoid variation-selector encoding mismatches
+    return "Слишком много" in text and "за сегодня" in text
+
 from . import db, tg
 from .config import MEDIA_DIR, PENDING_DIR
 from .hashing import hash_video_first_frame, sha256_file
@@ -110,6 +115,27 @@ async def handle_messages(messages: list[Message]) -> None:
 
 
 async def _process(messages: list[Message]) -> None:
+    # Check for limit message first — bot may attach media to this message too
+    text = _extract_text(messages)
+    if _is_limit_message(text):
+        log.info("Daily limit hit, rotating account")
+        state.status_message = "Лимит лайков превышен — меняю аккаунт..."
+        state.current_profile = None
+        state.warning = False
+        switched = await tg.rotate_account()
+        if switched:
+            state.active_account_idx = tg.current_idx()
+            log.info("Switched to account index=%s phone=%s", tg.current_idx(), tg._phones[tg.current_idx()])
+            state.status_message = ""
+            latest = await tg.fetch_latest_unit()
+            if latest:
+                await _process(latest)
+            return
+        log.warning("All accounts exhausted")
+        state.status_message = "Все аккаунты исчерпаны"
+        state.warning = True
+        return
+
     has_any_media = any(_has_media(m) for m in messages)
     if not has_any_media:
         log.info("Bot sent a non-profile message; raising warning")

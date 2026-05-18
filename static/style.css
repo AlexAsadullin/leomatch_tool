@@ -116,6 +116,13 @@ main {
 }
 .warning h2 { margin-top: 0; }
 
+.priority-alert {
+  background: #fff8e1;
+  border: 2px solid #f59e0b;
+  color: #78350f;
+}
+.priority-alert h2 { margin-top: 0; font-size: 18px; }
+
 .empty { text-align: center; color: #6e6e73; }
 
 .media {

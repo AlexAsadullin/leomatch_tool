@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import shutil
+import time
 from pathlib import Path
 
 from telethon.tl.custom import Message
@@ -14,12 +17,48 @@ def _is_limit_message(text: str) -> bool:
     return "Слишком много" in text and "за сегодня" in text
 
 from . import db, tg
-from .config import MEDIA_DIR, PENDING_DIR
+from .config import DB_PATH, MEDIA_DIR, PENDING_DIR, PRIORITY_PATH
 from .hashing import hash_video_first_frame, sha256_file
 from .state import state
 
 log = logging.getLogger("leodv.profile")
 
+
+def _is_priority_match(description: str) -> bool:
+    try:
+        entries = json.loads(PRIORITY_PATH.read_text())
+        return any(entry in description for entry in entries)
+    except Exception:
+        return False
+
+
+async def _deferred_rotate() -> None:
+    """Rotation runs as separate task to avoid CancelledError when disconnecting from inside event handler."""
+    async with state.lock:
+        try:
+            log.info("=== Deferred rotation starting ===")
+            switched = await tg.rotate_account()
+            if switched:
+                state.active_account_idx = tg.current_idx()
+                new_phone = tg._phones[tg.current_idx()]
+                log.info("Switched to account index=%s phone=%s, kicking off session", tg.current_idx(), new_phone)
+                state.status_message = ""
+                try:
+                    await tg.send_reaction("1")
+                    log.info("Sent kickoff '1' to bot on phone=%s", new_phone)
+                except Exception:
+                    log.exception("Kickoff send failed on phone=%s — waiting for bot to message us", new_phone)
+                return
+            log.warning("All accounts exhausted")
+            backup = DB_PATH.with_name("data_backup.db")
+            shutil.copy2(DB_PATH, backup)
+            log.info("DB backed up to %s", backup)
+            state.status_message = "Лимиты на всех аккаунтах исчерпаны — авто-скроллинг окончен до завтра"
+            state.warning = False
+        except Exception:
+            log.exception("Deferred rotation failed unexpectedly")
+            state.status_message = ""
+            state.warning = True
 
 def _is_photo(msg: Message) -> bool:
     return msg.photo is not None
@@ -118,22 +157,11 @@ async def _process(messages: list[Message]) -> None:
     # Check for limit message first — bot may attach media to this message too
     text = _extract_text(messages)
     if _is_limit_message(text):
-        log.info("Daily limit hit, rotating account")
+        log.info("Daily limit hit — scheduling deferred rotation (out of event-handler scope)")
         state.status_message = "Лимит лайков превышен — меняю аккаунт..."
         state.current_profile = None
         state.warning = False
-        switched = await tg.rotate_account()
-        if switched:
-            state.active_account_idx = tg.current_idx()
-            log.info("Switched to account index=%s phone=%s", tg.current_idx(), tg._phones[tg.current_idx()])
-            state.status_message = ""
-            latest = await tg.fetch_latest_unit()
-            if latest:
-                await _process(latest)
-            return
-        log.warning("All accounts exhausted")
-        state.status_message = "Все аккаунты исчерпаны"
-        state.warning = True
+        asyncio.create_task(_deferred_rotate())
         return
 
     has_any_media = any(_has_media(m) for m in messages)
@@ -186,6 +214,13 @@ async def _process(messages: list[Message]) -> None:
             shutil.rmtree(temp_dir, ignore_errors=True)
             existing_dir = MEDIA_DIR / str(profile_id)
             files = list(existing_dir.iterdir()) if existing_dir.exists() else []
+
+        if _is_priority_match(description):
+            log.info("PRIORITY MATCH: profile id=%s desc=%r", profile_id, description[:60])
+            state.current_profile = _profile_payload(profile_id, description, files, seen_count)
+            state.priority_alert = True
+            state.warning = False
+            return
 
         reason = _auto_dislike_reason(description, seen_count)
         if reason is not None:

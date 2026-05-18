@@ -9,18 +9,19 @@ from typing import Optional
 class AppState:
     current_profile: Optional[dict] = None
     warning: bool = False
-    only_new_mode: bool = True
+    only_new_mode: bool = False
     auto_dislike_mode: bool = False
-    auto_like_mode: bool = True
+    auto_like_mode: bool = False
     auto_dislike_count: int = 0
     like_count: int = 0
     dislike_count: int = 0
-    age_min: Optional[int] = 18
-    age_max: Optional[int] = 19
+    age_min: Optional[int] = None
+    age_max: Optional[int] = None
     active_account_idx: int = 0
     total_accounts: int = 0
     busy: bool = False
     status_message: str = ""
+    priority_alert: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     @property
@@ -43,6 +44,7 @@ class AppState:
             "total_accounts": self.total_accounts,
             "busy": self.busy,
             "status_message": self.status_message,
+            "priority_alert": self.priority_alert,
         }
 
 

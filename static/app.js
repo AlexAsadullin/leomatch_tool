@@ -1,5 +1,6 @@
 (() => {
   const els = {
+    priorityAlert: document.getElementById("priorityAlert"),
     warning: document.getElementById("warning"),
     empty: document.getElementById("empty"),
     profile: document.getElementById("profile"),
@@ -85,6 +86,7 @@
     const isWarning = !!state.warning;
     const buttonsLocked = actionInFlight || !hasProfile || isWarning || state.busy;
 
+    setHidden(els.priorityAlert, !state.priority_alert);
     setHidden(els.warning, !isWarning);
     setHidden(els.profile, !hasProfile);
     setHidden(els.empty, hasProfile || isWarning);

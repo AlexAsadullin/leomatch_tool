@@ -112,7 +112,7 @@ async def start(phones: list[str]) -> None:
     _phones = phones
     _clients = [TelegramClient(str(session_path(p)), API_ID, API_HASH) for p in phones]
     for idx, phone in enumerate(phones):
-        sf = Path(_clients[idx].session.filename)
+        sf = Path(str(session_path(phone)) + ".session")
         if not sf.exists():
             log.warning("No session file for phone=%s, skipping", phone)
             continue
@@ -134,7 +134,7 @@ async def rotate_account() -> bool:
     await _disconnect_current()
     candidate = (_current_idx + 1) % len(_clients)
     while candidate != start_idx:
-        sf = Path(_clients[candidate].session.filename)
+        sf = Path(str(session_path(_phones[candidate])) + ".session")
         if sf.exists():
             try:
                 await _connect_and_register(candidate)

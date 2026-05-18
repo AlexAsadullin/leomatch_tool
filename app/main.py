@@ -81,6 +81,7 @@ async def _react(text: str):
     finally:
         async with state.lock:
             state.current_profile = None
+            state.priority_alert = False
             if text == "❤️":
                 state.like_count += 1
             elif text == "👎":

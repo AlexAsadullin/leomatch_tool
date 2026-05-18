@@ -31,9 +31,13 @@ def session_path(phone: str) -> Path:
 
 
 DB_PATH = ROOT / "data.db"
+LIMITS_PATH = ROOT / "account_limits.json"
 MEDIA_DIR = ROOT / "media"
 PENDING_DIR = MEDIA_DIR / "_pending"
 STATIC_DIR = ROOT / "static"
+PRIORITY_PATH = ROOT / "highest_priority.json"
 
 MEDIA_DIR.mkdir(exist_ok=True)
 PENDING_DIR.mkdir(exist_ok=True)
+if not PRIORITY_PATH.exists():
+    PRIORITY_PATH.write_text("[]")

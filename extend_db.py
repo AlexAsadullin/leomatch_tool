@@ -36,9 +36,9 @@ CHUNK_SIZE = 100  # commit to the DB once per this many scanned messages (≈ on
 # из TG_PHONES (.env).
 # ──────────────────────────────────────────────────────────────────────────────
 ACCOUNTS: list[str] = [
-    "+79334195469",
     "+79648395469",
     "+79334295469",
+    "+79334195469",
 ]
 
 

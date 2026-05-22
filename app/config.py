@@ -5,7 +5,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
+APP_DIR = Path(__file__).resolve().parent
+ROOT = APP_DIR.parent
 load_dotenv(ROOT / ".env")
 
 
@@ -35,7 +36,7 @@ LIMITS_PATH = ROOT / "account_limits.json"
 MEDIA_DIR = ROOT / "media"
 PENDING_DIR = MEDIA_DIR / "_pending"
 STATIC_DIR = ROOT / "static"
-PRIORITY_PATH = ROOT / "highest_priority.json"
+PRIORITY_PATH = APP_DIR / "highest_priority.json"
 
 MEDIA_DIR.mkdir(exist_ok=True)
 PENDING_DIR.mkdir(exist_ok=True)

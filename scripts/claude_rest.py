@@ -111,7 +111,7 @@ def merge_deny(existing: list[str], new_rules: list[str]) -> list[str]:
 
 
 def main():
-    repo_root = Path.cwd()
+    repo_root = Path(__file__).resolve().parent.parent  # scripts/ → project root
     gitignore_path = repo_root / ".gitignore"
     settings_dir = repo_root / ".claude"
     settings_path = settings_dir / "settings.json"

@@ -5,11 +5,12 @@ Iterates the full message history for each account in TG_PHONES and inserts
 any profile (media + description) that doesn't already exist in the DB.
 
 Usage:
-    python3 extend_db.py
+    python3 scripts/extend_db.py
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import sqlite3
 import sys
@@ -17,8 +18,10 @@ import time
 import traceback
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))
+# This script lives in scripts/; the project root is its parent directory.
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from telethon import TelegramClient
 from telethon.tl.custom import Message
@@ -29,6 +32,9 @@ from app.hashing import hash_video_first_frame, sha256_file
 from app.profile import LONG_DESC_THRESHOLD
 
 CHUNK_SIZE = 100  # commit to the DB once per this many scanned messages (≈ one Telegram fetch chunk)
+SAVE_EVERY = 500  # update the progress checkpoint (db_extension_info.json) every this many messages
+
+CHECKPOINT_PATH = SCRIPT_DIR / "db_extension_info.json"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Аккаунты для парсинга. Отредактируй вручную: укажи номера в нужном порядке —
@@ -73,6 +79,35 @@ def _purge_temp() -> None:
     for child in PENDING_DIR.iterdir():
         if child.name.startswith("extend_"):
             shutil.rmtree(child, ignore_errors=True)
+
+
+def _load_checkpoint(accounts: list[str]) -> dict:
+    """Load db_extension_info.json. If it's missing, unreadable, or the account
+    list/order differs, return a fresh empty state (full restart, no checkpoints)."""
+    fresh = {"accounts": accounts, "current_account": None, "progress": {}}
+    if not CHECKPOINT_PATH.exists():
+        return fresh
+    try:
+        data = json.loads(CHECKPOINT_PATH.read_text())
+    except Exception:
+        print("Чекпоинт повреждён — старт с начала")
+        return fresh
+    if data.get("accounts") != accounts:
+        print("Список/порядок аккаунтов изменился — чекпоинт сброшен, старт с начала")
+        return fresh
+    return {
+        "accounts": accounts,
+        "current_account": data.get("current_account"),
+        "progress": data.get("progress", {}),
+    }
+
+
+def _save_checkpoint(state: dict) -> None:
+    CHECKPOINT_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+
+
+def _clear_checkpoint() -> None:
+    CHECKPOINT_PATH.unlink(missing_ok=True)
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -169,7 +204,7 @@ async def _safe_process(conn: sqlite3.Connection, unit: list[Message], stats: di
         stats["errors"] += 1
 
 
-async def process_account(conn: sqlite3.Connection, phone: str) -> dict:
+async def process_account(conn: sqlite3.Connection, phone: str, state: dict) -> dict:
     sf = session_path(phone)
     stats: dict = {"phone": phone, "inserted": 0, "skipped": 0, "errors": 0}
 
@@ -193,30 +228,49 @@ async def process_account(conn: sqlite3.Connection, phone: str) -> dict:
         # Album messages share a grouped_id and arrive consecutively in iter_messages,
         # so we only ever hold one unit (one album) in memory at a time.
         total = (await client.get_messages(BOT_USERNAME, limit=0)).total
-        print(f"[{phone}] всего сообщений в чате: {total}")
-        fetched = 0
+
+        # Точка возобновления из чекпоинта — только если число сообщений в чате
+        # совпадает с сохранённым (иначе порядок сместился — обрабатываем заново).
+        cp = state["progress"].get(phone)
+        resume_at = 0
+        if cp and not cp.get("done") and cp.get("total") == total:
+            resume_at = min(int(cp.get("processed", 0)), total)
+            print(f"[{phone}] всего сообщений: {total} — возобновляю с {resume_at}")
+        elif cp and cp.get("total") != total:
+            print(f"[{phone}] всего сообщений: {total} "
+                  f"(в чекпоинте {cp.get('total')}) — обрабатываю заново")
+        else:
+            print(f"[{phone}] всего сообщений: {total}")
+
+        state["current_account"] = phone
+
+        fetched = resume_at
         processed = 0
         last_inserted = 0
         iter_started = time.monotonic()
         current_unit: list[Message] = []
         current_gid = None
 
-        async for msg in client.iter_messages(BOT_USERNAME, limit=None):
+        async for msg in client.iter_messages(BOT_USERNAME, limit=None, add_offset=resume_at):
             fetched += 1
             if fetched % CHUNK_SIZE == 0:
                 conn.commit()  # batch commit — one per scanned chunk
-            if fetched % 500 == 0:
+            if fetched % SAVE_EVERY == 0:
+                conn.commit()  # make the DB durable BEFORE recording the checkpoint
+                state["progress"][phone] = {"total": total, "processed": fetched, "done": False}
+                _save_checkpoint(state)
                 now = time.monotonic()
                 delta = stats["inserted"] - last_inserted
                 remaining = max(total - fetched, 0)
-                # Реальная средняя скорость по уже обработанным сообщениям этого аккаунта.
+                # Средняя скорость по сообщениям, обработанным в этом запуске.
                 elapsed_total = now - started
-                speed = fetched / elapsed_total if elapsed_total > 0 else 0.0
+                scanned = fetched - resume_at
+                speed = scanned / elapsed_total if elapsed_total > 0 else 0.0
                 eta = remaining / speed if speed > 0 else 0.0
-                print(f"[{phone}] прочитано {fetched}/{total} | осталось {remaining} | "
-                      f"+{delta} анкет за итерацию (всего {stats['inserted']}) | "
-                      f"итерация {now - iter_started:.1f}с | "
-                      f"средняя {speed:.0f} сообщ/с | прогноз ~{_fmt_duration(eta)}")
+                print(f"[{phone}] {fetched}/{total} | осталось {remaining} | "
+                      f"+{delta} | "
+                      f"{now - iter_started:.1f}с | "
+                      f"осталось ~{_fmt_duration(eta)}")
                 last_inserted = stats["inserted"]
                 iter_started = now
             if msg.out:
@@ -237,6 +291,8 @@ async def process_account(conn: sqlite3.Connection, phone: str) -> dict:
             await _safe_process(conn, current_unit, stats)
 
         conn.commit()  # flush this account's remainder
+        state["progress"][phone] = {"total": total, "processed": total, "done": True}
+        _save_checkpoint(state)
         print(f"[{phone}] прочитано {fetched} сообщений, обработано {processed} анкет-юнитов")
 
     finally:
@@ -262,10 +318,24 @@ async def main() -> None:
         accounts = ACCOUNTS or PHONES
         print(f"Аккаунтов к обработке: {len(accounts)} (по порядку) {accounts}")
 
+        state = _load_checkpoint(accounts)
+
         all_stats = []
         for phone in accounts:
-            s = await process_account(conn, phone)
+            cp = state["progress"].get(phone)
+            if cp and cp.get("done"):
+                print(f"\n[{phone}] уже обработан по чекпоинту — пропуск")
+                continue
+            s = await process_account(conn, phone, state)
             all_stats.append(s)
+
+        # Чекпоинт чистим только когда ВСЕ аккаунты реально завершены.
+        if all(state["progress"].get(p, {}).get("done") for p in accounts):
+            _clear_checkpoint()
+            print("\nВсе аккаунты обработаны — чекпоинт db_extension_info.json очищен")
+        else:
+            _save_checkpoint(state)
+            print("\nНе все аккаунты завершены — чекпоинт сохранён для возобновления")
 
         print("\n=== ИТОГ ===")
         for s in all_stats:

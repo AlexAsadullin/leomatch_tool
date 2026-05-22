@@ -2,6 +2,8 @@
   const els = {
     priorityAlert: document.getElementById("priorityAlert"),
     warning: document.getElementById("warning"),
+    warningTitle: document.getElementById("warningTitle"),
+    warningText: document.getElementById("warningText"),
     empty: document.getElementById("empty"),
     profile: document.getElementById("profile"),
     media: document.getElementById("media"),
@@ -10,6 +12,9 @@
     seen: document.getElementById("seen"),
     likeBtn: document.getElementById("likeBtn"),
     dislikeBtn: document.getElementById("dislikeBtn"),
+    letterBtn: document.getElementById("letterBtn"),
+    letterInput: document.getElementById("letterInput"),
+    letterAuto: document.getElementById("letterAuto"),
     autoDislikeBtn: document.getElementById("autoDislikeBtn"),
     modeBtn: document.getElementById("modeBtn"),
     autoCount: document.getElementById("autoCount"),
@@ -24,6 +29,7 @@
     autoLikeBtn: document.getElementById("autoLikeBtn"),
     activePhone: document.getElementById("activePhone"),
     emptyText: document.getElementById("emptyText"),
+    switchAccountBtn: document.getElementById("switchAccountBtn"),
     modal: document.getElementById("modal"),
     modalText: document.getElementById("modalText"),
     modalYes: document.getElementById("modalYes"),
@@ -91,6 +97,16 @@
     setHidden(els.profile, !hasProfile);
     setHidden(els.empty, hasProfile || isWarning);
 
+    if (isWarning) {
+      if (state.status_message) {
+        els.warningTitle.textContent = "Лимит исчерпан";
+        els.warningText.textContent = state.status_message;
+      } else {
+        els.warningTitle.textContent = "Бот прислал не-анкету";
+        els.warningText.textContent = "Откройте Telegram и выполните требуемые действия в чате с @leomatchbot. Кнопки заблокированы до получения новой анкеты.";
+      }
+    }
+
     if (state.status_message) {
       els.emptyText.textContent = state.status_message;
     } else if (state.auto_like_mode) {
@@ -116,6 +132,7 @@
 
     els.likeBtn.disabled = buttonsLocked;
     els.dislikeBtn.disabled = buttonsLocked;
+    els.letterBtn.disabled = buttonsLocked;
 
     els.autoDislikeBtn.classList.toggle("active", state.auto_dislike_mode);
     els.autoDislikeBtn.textContent = `Авто-дизлайк: ${state.auto_dislike_mode ? "ON" : "OFF"}`;
@@ -152,6 +169,7 @@
     actionInFlight = true;
     els.likeBtn.disabled = true;
     els.dislikeBtn.disabled = true;
+    els.letterBtn.disabled = true;
     try {
       const r = await fetch(path, { method: "POST" });
       if (!r.ok) console.warn("reaction failed", r.status);
@@ -163,6 +181,31 @@
     }
   }
 
+  els.letterInput.addEventListener("input", () => {
+    if (els.letterInput.value.length > 0) els.letterAuto.checked = false;
+  });
+
+  els.letterBtn.addEventListener("click", async () => {
+    if (actionInFlight) return;
+    actionInFlight = true;
+    els.likeBtn.disabled = true;
+    els.dislikeBtn.disabled = true;
+    els.letterBtn.disabled = true;
+    try {
+      await fetch("/api/letter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: els.letterInput.value, auto: els.letterAuto.checked }),
+      });
+      els.letterInput.value = "";
+      els.letterAuto.checked = false;
+    } catch (e) {
+      console.error("letter error", e);
+    } finally {
+      actionInFlight = false;
+      await fetchState();
+    }
+  });
   els.likeBtn.addEventListener("click", () => react("/api/like"));
   els.dislikeBtn.addEventListener("click", () => react("/api/dislike"));
   let modalOnYes = null;
@@ -211,6 +254,16 @@
     const r = await fetch("/api/only-new/toggle", { method: "POST" });
     if (r.ok) render(await r.json());
   });
+  els.switchAccountBtn.addEventListener("click", async () => {
+    els.switchAccountBtn.disabled = true;
+    try {
+      await fetch("/api/switch-account", { method: "POST" });
+    } finally {
+      setTimeout(() => { els.switchAccountBtn.disabled = false; }, 3000);
+      await fetchState();
+    }
+  });
+
   els.descMore.addEventListener("click", () => {
     descExpanded = !descExpanded;
     applyDescView();

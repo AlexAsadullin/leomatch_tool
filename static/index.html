@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>leodv</title>
-  <link rel="stylesheet" href="/static/style.css?v=5" />
+  <link rel="stylesheet" href="/static/style.css?v=9" />
 </head>
 <body>
   <header class="topbar">
@@ -13,6 +13,7 @@
       <button id="autoDislikeBtn" class="mode-btn" type="button">Авто-дизлайк: OFF</button>
       <button id="autoLikeBtn" class="mode-btn" type="button">Авто-лайк: OFF</button>
       <button id="modeBtn" class="mode-btn" type="button">Только новые: OFF</button>
+      <button id="switchAccountBtn" class="mode-btn" type="button">Переключить аккаунт</button>
       <form id="ageForm" class="age-filter">
         <input id="ageMin" type="number" step="1" min="0" inputmode="numeric" placeholder="мин" />
         <span>≤ age ≤</span>
@@ -40,8 +41,8 @@
     </section>
 
     <section id="warning" class="card warning hidden">
-      <h2>Бот прислал не-анкету</h2>
-      <p>Откройте Telegram и выполните требуемые действия в чате с <code>@leomatchbot</code>. Кнопки заблокированы до получения новой анкеты.</p>
+      <h2 id="warningTitle">Бот прислал не-анкету</h2>
+      <p id="warningText">Откройте Telegram и выполните требуемые действия в чате с <code>@leomatchbot</code>. Кнопки заблокированы до получения новой анкеты.</p>
     </section>
 
     <section id="empty" class="card empty">
@@ -57,8 +58,15 @@
   </main>
 
   <div id="actions" class="actions">
+    <div class="actions-inner actions-letter">
+      <input id="letterInput" type="text" placeholder="Сообщение для 💌 / 📹…" />
+      <label class="letter-auto">
+        <input id="letterAuto" type="checkbox" /> авто-сообщение
+      </label>
+    </div>
     <div class="actions-inner">
       <button id="dislikeBtn" class="btn dislike" type="button">👎 Дизлайк</button>
+      <button id="letterBtn" class="btn letter" type="button">💌 / 📹</button>
       <button id="likeBtn" class="btn like" type="button">❤️ Лайк</button>
     </div>
   </div>
@@ -74,6 +82,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=5"></script>
+  <script src="/static/app.js?v=9"></script>
 </body>
 </html>

@@ -171,7 +171,8 @@ main {
   right: 0;
   bottom: 0;
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   padding: 12px 16px;
   background: rgba(255,255,255,0.95);
   backdrop-filter: blur(10px);
@@ -199,3 +200,22 @@ main {
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn.like { background: #34c759; color: white; }
 .btn.dislike { background: #8e8e93; color: white; }
+.btn.letter { background: #007aff; color: white; }
+
+.actions-letter { align-items: center; }
+#letterInput {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #c7c7cc;
+  border-radius: 8px;
+  font-size: 15px;
+}
+.letter-auto {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  white-space: nowrap;
+  color: #1c1c1e;
+  cursor: pointer;
+}

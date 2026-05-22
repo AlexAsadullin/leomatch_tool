@@ -32,6 +32,38 @@ def _is_priority_match(description: str) -> bool:
         return False
 
 
+def _auto_letter_reply(age: int | None) -> str:
+    if age is not None and age <= 19:
+        return "привки, мне 19"
+    return "привки, где учишься?"
+
+
+async def _deferred_letter(description: str, custom_text: str, auto: bool) -> None:
+    """💌 / 📹: отправить запрос, дождаться не-анкеты и ответить (кастомным или авто-текстом по возрасту)."""
+    age = _parse_age(description)
+    async with state.lock:
+        state.letter_pending = True
+        state.status_message = "Отправка 💌 / 📹…"
+        state.current_profile = None
+        state.warning = False
+        state.priority_alert = False
+    try:
+        await tg.send_reaction("💌 / 📹")
+        await asyncio.sleep(1.5)
+        text = (custom_text or "").strip()
+        if auto or not text:
+            reply = _auto_letter_reply(age)
+        else:
+            reply = text
+        await tg.send_reaction(reply)
+        log.info("Letter: sent '💌 / 📹' + reply=%r (auto=%s age=%s)", reply, auto, age)
+    except Exception:
+        log.exception("Letter send failed")
+        async with state.lock:
+            state.letter_pending = False
+            state.status_message = ""
+
+
 async def _deferred_rotate() -> None:
     """Rotation runs as separate task to avoid CancelledError when disconnecting from inside event handler."""
     async with state.lock:
@@ -106,6 +138,33 @@ def _profile_payload(profile_id: int, description: str, files: list[Path], seen_
     }
 
 
+def _purge_media(keep_pid: int | None) -> None:
+    """Delete every profile dir in MEDIA_DIR except the current one (and _pending)."""
+    if not MEDIA_DIR.exists():
+        return
+    keep = str(keep_pid) if keep_pid is not None else None
+    for child in MEDIA_DIR.iterdir():
+        if child.name == PENDING_DIR.name or child.name == keep:
+            continue
+        shutil.rmtree(child, ignore_errors=True)
+
+
+def _publish_media(profile_id: int, downloaded: list[tuple[Message, Path]], temp_dir: Path) -> list[Path]:
+    """Move freshly downloaded media into the serving dir and purge all other profiles' media."""
+    target = MEDIA_DIR / str(profile_id)
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True, exist_ok=True)
+    files: list[Path] = []
+    for _, src in downloaded:
+        dst = target / src.name
+        shutil.move(str(src), str(dst))
+        files.append(dst)
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    _purge_media(keep_pid=profile_id)
+    return files
+
+
 async def _download_unit(messages: list[Message], temp_dir: Path) -> list[tuple[Message, Path]]:
     """Download all media in the unit, preserving order. Returns [(message, path), ...]."""
     if temp_dir.exists():
@@ -157,15 +216,22 @@ async def _process(messages: list[Message]) -> None:
     # Check for limit message first — bot may attach media to this message too
     text = _extract_text(messages)
     if _is_limit_message(text):
-        log.info("Daily limit hit — scheduling deferred rotation (out of event-handler scope)")
-        state.status_message = "Лимит лайков превышен — меняю аккаунт..."
+        log.info("Limit hit — blocking UI, manual account switch required")
         state.current_profile = None
-        state.warning = False
-        asyncio.create_task(_deferred_rotate())
+        state.priority_alert = False
+        state.letter_pending = False
+        state.status_message = "Лимит исчерпан — смените аккаунт вручную (кнопка «Переключить аккаунт»)"
+        state.warning = True
         return
 
     has_any_media = any(_has_media(m) for m in messages)
     if not has_any_media:
+        if state.current_profile is not None:
+            log.info("Non-profile message while a profile is displayed — ignoring (keep photo)")
+            return
+        if state.letter_pending:
+            log.info("Non-profile during letter flow — ignoring, waiting for profiles")
+            return
         log.info("Bot sent a non-profile message; raising warning")
         state.current_profile = None
         state.warning = True
@@ -199,32 +265,25 @@ async def _process(messages: list[Message]) -> None:
 
         if existing is None:
             profile_id = db.insert_profile(description, media_hash)
-            target_dir = MEDIA_DIR / str(profile_id)
-            target_dir.mkdir(parents=True, exist_ok=True)
-            files: list[Path] = []
-            for _, src in downloaded:
-                dst = target_dir / src.name
-                shutil.move(str(src), str(dst))
-                files.append(dst)
-            shutil.rmtree(temp_dir, ignore_errors=True)
             seen_count = 1
         else:
             profile_id = int(existing["id"])
             seen_count = db.bump_seen(profile_id)
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            existing_dir = MEDIA_DIR / str(profile_id)
-            files = list(existing_dir.iterdir()) if existing_dir.exists() else []
 
         if _is_priority_match(description):
             log.info("PRIORITY MATCH: profile id=%s desc=%r", profile_id, description[:60])
+            files = _publish_media(profile_id, downloaded, temp_dir)
             state.current_profile = _profile_payload(profile_id, description, files, seen_count)
             state.priority_alert = True
             state.warning = False
+            state.letter_pending = False
+            state.status_message = ""
             return
 
         reason = _auto_dislike_reason(description, seen_count)
         if reason is not None:
             log.info("Auto-disliking profile id=%s seen=%s reason=%s", profile_id, seen_count, reason)
+            shutil.rmtree(temp_dir, ignore_errors=True)
             await tg.send_reaction("👎")
             state.auto_dislike_count += 1
             state.current_profile = None
@@ -233,14 +292,18 @@ async def _process(messages: list[Message]) -> None:
 
         if state.auto_like_mode:
             log.info("Auto-liking profile id=%s seen=%s", profile_id, seen_count)
+            shutil.rmtree(temp_dir, ignore_errors=True)
             await tg.send_reaction("❤️")
             state.like_count += 1
             state.current_profile = None
             state.warning = False
             return
 
+        files = _publish_media(profile_id, downloaded, temp_dir)
         state.current_profile = _profile_payload(profile_id, description, files, seen_count)
         state.warning = False
+        state.letter_pending = False
+        state.status_message = ""
         log.info("Profile id=%s seen_count=%s shown", profile_id, seen_count)
     except Exception:
         log.exception("Failed to process messages %s", [m.id for m in messages])

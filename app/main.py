@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 from contextlib import asynccontextmanager
@@ -11,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db, tg
 from .config import DB_PATH, MEDIA_DIR, PHONES, STATIC_DIR
-from .profile import handle_messages
+from .profile import handle_messages, _deferred_rotate, _deferred_letter
 from .state import state
 
 logging.basicConfig(
@@ -82,10 +83,32 @@ async def _react(text: str):
         async with state.lock:
             state.current_profile = None
             state.priority_alert = False
+            state.letter_pending = False
             if text == "❤️":
                 state.like_count += 1
             elif text == "👎":
                 state.dislike_count += 1
+    return {"ok": True}
+
+
+class LetterPayload(BaseModel):
+    text: str = ""
+    auto: bool = False
+
+
+@app.post("/api/letter")
+async def letter(payload: LetterPayload):
+    async with state.lock:
+        if state.warning or state.current_profile is None:
+            raise HTTPException(status_code=409, detail="No active profile to react to")
+        description = state.current_profile.get("description", "")
+    asyncio.create_task(_deferred_letter(description, payload.text, payload.auto))
+    return {"ok": True}
+
+
+@app.post("/api/switch-account")
+async def switch_account():
+    asyncio.create_task(_deferred_rotate())
     return {"ok": True}
 
 

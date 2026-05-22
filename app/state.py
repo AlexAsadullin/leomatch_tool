@@ -22,6 +22,7 @@ class AppState:
     busy: bool = False
     status_message: str = ""
     priority_alert: bool = False
+    letter_pending: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     @property
@@ -45,6 +46,7 @@ class AppState:
             "busy": self.busy,
             "status_message": self.status_message,
             "priority_alert": self.priority_alert,
+            "letter_pending": self.letter_pending,
         }
 
 

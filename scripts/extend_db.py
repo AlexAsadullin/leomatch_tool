@@ -17,6 +17,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
+from datetime import datetime as dt
 
 # This script lives in scripts/; the project root is its parent directory.
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -267,7 +268,7 @@ async def process_account(conn: sqlite3.Connection, phone: str, state: dict) -> 
                 scanned = fetched - resume_at
                 speed = scanned / elapsed_total if elapsed_total > 0 else 0.0
                 eta = remaining / speed if speed > 0 else 0.0
-                print(f"[{phone}] {fetched}/{total} | осталось {remaining} | "
+                print(f"[{dt.now().strftime("%Y-%b-%d %H:%M:%S")}] {fetched}/{total} | осталось {remaining} | "
                       f"+{delta} | "
                       f"{now - iter_started:.1f}с | "
                       f"осталось ~{_fmt_duration(eta)}")

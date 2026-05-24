@@ -16,7 +16,7 @@ def _is_limit_message(text: str) -> bool:
     # Match without emoji to avoid variation-selector encoding mismatches
     return "Слишком много" in text and "за сегодня" in text
 
-from . import db, tg
+from . import db, dedup, tg
 from .config import DB_PATH, MEDIA_DIR, PENDING_DIR, PRIORITY_PATH
 from .hashing import hash_video_first_frame, sha256_file
 from .state import state
@@ -180,14 +180,27 @@ async def _download_unit(messages: list[Message], temp_dir: Path) -> list[tuple[
     return out
 
 
-def _compute_first_media_hash(downloaded: list[tuple[Message, Path]]) -> str:
+def _compute_all_media_hashes(
+    downloaded: list[tuple[Message, Path]],
+) -> tuple[str, list[str]]:
+    """Returns (first_hash_for_db, all_hashes_for_dedup_lookup).
+
+    `first_hash_for_db` matches today's storage semantics (sha256 of first
+    photo, or first-frame hash of first video).
+    `all_hashes_for_dedup_lookup` lets us catch the case where the bot
+    reordered photos — we compare every incoming photo against the stored
+    first-photo hash of existing rows. Videos are not re-frame-hashed per
+    item (one ffmpeg call per unit is enough).
+    """
     photos = [(m, p) for m, p in downloaded if _is_photo(m)]
-    if photos:
-        return sha256_file(photos[0][1])
     videos = [(m, p) for m, p in downloaded if _is_video(m)]
+    if photos:
+        photo_hashes = [sha256_file(p) for _, p in photos]
+        return photo_hashes[0], photo_hashes
     if not videos:
         raise RuntimeError("No photo or video media to hash")
-    return hash_video_first_frame(videos[0][1])
+    h = hash_video_first_frame(videos[0][1])
+    return h, [h]
 
 
 def _auto_dislike_reason(description: str, seen_count: int) -> str | None:
@@ -250,7 +263,7 @@ async def _process(messages: list[Message]) -> None:
             return
 
         try:
-            media_hash = _compute_first_media_hash(downloaded)
+            first_hash, all_hashes = _compute_all_media_hashes(downloaded)
         except RuntimeError as exc:
             log.warning("Cannot hash media, skipping profile with dislike: %s", exc)
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -258,16 +271,14 @@ async def _process(messages: list[Message]) -> None:
             state.current_profile = None
             state.warning = False
             return
-        if len(description) >= LONG_DESC_THRESHOLD:
-            existing = db.find_profile_by_description(description)
-        else:
-            existing = db.find_profile(description, media_hash)
 
-        if existing is None:
-            profile_id = db.insert_profile(description, media_hash)
+        dup_id = dedup.find_duplicate(description, all_hashes)
+        if dup_id is None:
+            profile_id = db.insert_profile(description, first_hash)
+            dedup.register(profile_id, description, first_hash)
             seen_count = 1
         else:
-            profile_id = int(existing["id"])
+            profile_id = dup_id
             seen_count = db.bump_seen(profile_id)
 
         if _is_priority_match(description):

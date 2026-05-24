@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, tg
+from . import db, dedup, tg
 from .config import DB_PATH, MEDIA_DIR, PHONES, STATIC_DIR
 from .profile import handle_messages, _deferred_rotate, _deferred_letter
 from .state import state
@@ -25,6 +25,8 @@ log = logging.getLogger("leodv")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init()
+    dedup.init_indexes()
+    log.info("dedup indexes loaded: %s", dedup.stats())
     if DB_PATH.exists():
         backup = DB_PATH.with_name("data_backup.db")
         shutil.copy2(DB_PATH, backup)

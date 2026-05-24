@@ -65,30 +65,41 @@ async def _deferred_letter(description: str, custom_text: str, auto: bool) -> No
 
 
 async def _deferred_rotate() -> None:
-    """Rotation runs as separate task to avoid CancelledError when disconnecting from inside event handler."""
+    """Rotation runs as a separate task. state.lock is held ONLY for brief field
+    mutations — never across the long network I/O — otherwise the new account's
+    incoming-message handler (also needing state.lock) would block indefinitely."""
+    log.info("=== Deferred rotation starting ===")
     async with state.lock:
-        try:
-            log.info("=== Deferred rotation starting ===")
-            switched = await tg.rotate_account()
-            if switched:
+        state.current_profile = None
+        state.priority_alert = False
+        state.letter_pending = False
+        state.status_message = "Меняю аккаунт…"
+        state.warning = False
+    try:
+        switched = await tg.rotate_account()
+        if switched:
+            new_phone = tg._phones[tg.current_idx()]
+            async with state.lock:
                 state.active_account_idx = tg.current_idx()
-                new_phone = tg._phones[tg.current_idx()]
-                log.info("Switched to account index=%s phone=%s, kicking off session", tg.current_idx(), new_phone)
                 state.status_message = ""
-                try:
-                    await tg.send_reaction("1")
-                    log.info("Sent kickoff '1' to bot on phone=%s", new_phone)
-                except Exception:
-                    log.exception("Kickoff send failed on phone=%s — waiting for bot to message us", new_phone)
-                return
-            log.warning("All accounts exhausted")
-            backup = DB_PATH.with_name("data_backup.db")
-            shutil.copy2(DB_PATH, backup)
-            log.info("DB backed up to %s", backup)
+                state.warning = False
+            log.info("Switched to phone=%s, sending kickoff '1'", new_phone)
+            try:
+                await tg.send_reaction("1")
+                log.info("Sent kickoff '1' on phone=%s", new_phone)
+            except Exception:
+                log.exception("Kickoff send failed on phone=%s", new_phone)
+            return
+        log.warning("All accounts exhausted")
+        backup = DB_PATH.with_name("data_backup.db")
+        shutil.copy2(DB_PATH, backup)
+        log.info("DB backed up to %s", backup)
+        async with state.lock:
             state.status_message = "Лимиты на всех аккаунтах исчерпаны — авто-скроллинг окончен до завтра"
             state.warning = False
-        except Exception:
-            log.exception("Deferred rotation failed unexpectedly")
+    except Exception:
+        log.exception("Deferred rotation failed unexpectedly")
+        async with state.lock:
             state.status_message = ""
             state.warning = True
 
@@ -219,10 +230,35 @@ async def handle_messages(messages: list[Message]) -> None:
     """Pipeline entry point. Called for each unit (single message or album) from the bot."""
     async with state.lock:
         state.busy = True
+        prev_pid = state.current_profile.get("id") if state.current_profile else None
+        prev_status = state.status_message
+        prev_warning = state.warning
         try:
             await _process(messages)
         finally:
             state.busy = False
+    # Outside the lock — push to optional Telegram-bot UI without blocking _process.
+    await _notify_tg_bot(prev_pid, prev_status, prev_warning)
+
+
+async def _notify_tg_bot(prev_pid, prev_status: str, prev_warning: bool) -> None:
+    try:
+        from tg_bot.bot import get_bot
+    except Exception:
+        return
+    bot = get_bot()
+    if bot is None:
+        return
+    try:
+        cp = state.current_profile
+        if cp and cp.get("id") != prev_pid:
+            await bot.notify_profile()
+        if state.status_message and state.status_message != prev_status:
+            await bot.notify_status(state.status_message)
+        elif state.warning and not prev_warning and not state.status_message:
+            await bot.notify_status("⚠️ Бот прислал не-анкету. Проверь Telegram.")
+    except Exception:
+        log.exception("tg_bot notification failed")
 
 
 async def _process(messages: list[Message]) -> None:

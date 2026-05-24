@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -10,7 +11,7 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, dedup, tg
+from . import db, dedup, settings, tg
 from .config import DB_PATH, MEDIA_DIR, PHONES, STATIC_DIR, TG_BOT_TOKEN
 from .profile import handle_messages, _deferred_rotate, _deferred_letter
 from .state import state
@@ -22,9 +23,36 @@ logging.basicConfig(
 log = logging.getLogger("leodv")
 
 
+_WATCHDOG_INTERVAL = 30  # sec — раз в полминуты проверяем что бот не молчит
+
+
+async def _watchdog() -> None:
+    """Safety net: если давно ничего не приходило и нет активной анкеты —
+    дотащить из @leomatchbot последнее сообщение и прогнать через handle_messages,
+    чтобы поймать non-profile, который мог не докатиться по апдейтам."""
+    while True:
+        await asyncio.sleep(_WATCHDOG_INTERVAL)
+        try:
+            idle = time.monotonic() - state.last_message_at
+            if (
+                idle < _WATCHDOG_INTERVAL
+                or state.busy
+                or state.current_profile is not None
+                or state.warning
+            ):
+                continue
+            log.info("Watchdog: idle %.0fs, re-fetching latest bot message", idle)
+            latest = await tg.fetch_latest_unit()
+            if latest:
+                await handle_messages(latest)
+        except Exception:
+            log.exception("Watchdog error")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init()
+    settings.load()    # ← восстанавливаем сохранённые режимы/фильтры/счётчики
     dedup.init_indexes()
     log.info("dedup indexes loaded: %s", dedup.stats())
     if DB_PATH.exists():
@@ -56,6 +84,7 @@ async def lifespan(app: FastAPI):
             await handle_messages(latest)
     except Exception:
         log.exception("Bootstrap failed")
+    asyncio.create_task(_watchdog())
     yield
     await tg.stop()
     try:
@@ -111,12 +140,12 @@ async def _react(text: str):
                 state.like_count += 1
             elif text == "👎":
                 state.dislike_count += 1
+        settings.save()
     return {"ok": True}
 
 
 class LetterPayload(BaseModel):
     text: str = ""
-    auto: bool = False
 
 
 @app.post("/api/letter")
@@ -124,8 +153,7 @@ async def letter(payload: LetterPayload):
     async with state.lock:
         if state.warning or state.current_profile is None:
             raise HTTPException(status_code=409, detail="No active profile to react to")
-        description = state.current_profile.get("description", "")
-    asyncio.create_task(_deferred_letter(description, payload.text, payload.auto))
+    asyncio.create_task(_deferred_letter(payload.text))
     return {"ok": True}
 
 
@@ -141,6 +169,7 @@ async def toggle_auto_dislike():
         state.auto_dislike_mode = not state.auto_dislike_mode
         if state.auto_dislike_mode:
             state.auto_like_mode = False
+        settings.save()
         return state.snapshot()
 
 
@@ -150,6 +179,7 @@ async def toggle_auto_like():
         state.auto_like_mode = not state.auto_like_mode
         if state.auto_like_mode:
             state.auto_dislike_mode = False
+        settings.save()
         return state.snapshot()
 
 
@@ -159,6 +189,7 @@ async def toggle_only_new():
         state.only_new_mode = not state.only_new_mode
         if state.only_new_mode:
             state.auto_dislike_count = 0
+        settings.save()
         return state.snapshot()
 
 
@@ -173,6 +204,7 @@ async def set_age_filter(payload: AgeFilterPayload):
         if payload.min is None and payload.max is None:
             state.age_min = None
             state.age_max = None
+            settings.save()
             return state.snapshot()
         if payload.min is None or payload.max is None:
             raise HTTPException(status_code=400, detail="Both min and max must be provided")
@@ -182,4 +214,5 @@ async def set_age_filter(payload: AgeFilterPayload):
             raise HTTPException(status_code=400, detail="min must be <= max")
         state.age_min = payload.min
         state.age_max = payload.max
+        settings.save()
         return state.snapshot()

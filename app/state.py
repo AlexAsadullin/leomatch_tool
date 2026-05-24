@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -23,6 +24,7 @@ class AppState:
     status_message: str = ""
     priority_alert: bool = False
     letter_pending: bool = False
+    last_message_at: float = field(default_factory=time.monotonic)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     @property

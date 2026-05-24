@@ -14,7 +14,6 @@
     dislikeBtn: document.getElementById("dislikeBtn"),
     letterBtn: document.getElementById("letterBtn"),
     letterInput: document.getElementById("letterInput"),
-    letterAuto: document.getElementById("letterAuto"),
     autoDislikeBtn: document.getElementById("autoDislikeBtn"),
     modeBtn: document.getElementById("modeBtn"),
     autoCount: document.getElementById("autoCount"),
@@ -181,10 +180,6 @@
     }
   }
 
-  els.letterInput.addEventListener("input", () => {
-    if (els.letterInput.value.length > 0) els.letterAuto.checked = false;
-  });
-
   els.letterBtn.addEventListener("click", async () => {
     if (actionInFlight) return;
     actionInFlight = true;
@@ -195,10 +190,9 @@
       await fetch("/api/letter", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: els.letterInput.value, auto: els.letterAuto.checked }),
+        body: JSON.stringify({ text: els.letterInput.value }),
       });
       els.letterInput.value = "";
-      els.letterAuto.checked = false;
     } catch (e) {
       console.error("letter error", e);
     } finally {

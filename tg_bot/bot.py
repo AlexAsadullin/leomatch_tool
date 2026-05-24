@@ -67,6 +67,7 @@ class TgBot:
         me = await client.get_me()
         self._username = me.username
         client.add_event_handler(self._on_message, events.NewMessage(incoming=True))
+        client.add_event_handler(self._on_callback, events.CallbackQuery)
         log.info("Telegram bot started: @%s (id=%s)", me.username, me.id)
 
     async def bootstrap_admins(self, phones: list[str]) -> None:
@@ -133,16 +134,18 @@ class TgBot:
     # ─── keyboard ───────────────────────────────────────────────────────
 
     def _keyboard(self) -> list[list[Button]]:
+        from app import tg as user_tg
+        current_phone = (
+            user_tg._phones[user_tg._current_idx] if user_tg._phones else "—"
+        )
         return [
-            [_btn("❤️ Лайк"), _btn("👎 Дизлайк")],
-            [_btn("💌 / 📹 авто"), _btn("💌 / 📹 своё")],
             [
                 _btn(f"Авто-лайк: {_on_off(state.auto_like_mode)}"),
                 _btn(f"Авто-дизлайк: {_on_off(state.auto_dislike_mode)}"),
             ],
             [_btn(f"Только новые: {_on_off(state.only_new_mode)}")],
             [_btn(_format_age())],
-            [_btn("🔄 Переключить аккаунт"), _btn("ℹ️ Статус")],
+            [_btn(f"🔄 Аккаунт: {current_phone} →"), _btn("ℹ️ Статус")],
         ]
 
     # ─── outbound helpers ───────────────────────────────────────────────
@@ -193,17 +196,31 @@ class TgBot:
             if local.exists():
                 media_paths.append(str(local))
 
-        kb = self._keyboard()
+        # Inline-кнопки под анкетой. Тонкость: Telegram НЕ поддерживает кнопки
+        # на альбомах (group of media) — Telethon в этом случае их молча
+        # игнорирует. Поэтому если медиа > 1 — сначала шлём альбом без кнопок,
+        # а кнопки + caption уходят отдельным follow-up сообщением.
+        inline_kb = [[
+            Button.inline("❤️ Лайк", b"like"),
+            Button.inline("👎 Дизлайк", b"dislike"),
+            Button.inline("💌 Сообщение", b"letter"),
+        ]]
         for uid in self.admin_ids:
             try:
-                if media_paths:
+                if len(media_paths) > 1:
+                    await self._client.send_file(uid, media_paths)
+                    await self._client.send_message(uid, caption, buttons=inline_kb)
+                elif len(media_paths) == 1:
                     await self._client.send_file(
-                        uid, media_paths, caption=caption, buttons=kb,
+                        uid, media_paths[0], caption=caption, buttons=inline_kb,
                     )
                 else:
-                    await self._client.send_message(uid, caption, buttons=kb)
+                    await self._client.send_message(uid, caption, buttons=inline_kb)
             except Exception:
                 log.exception("Failed to send profile to admin %s", uid)
+        # Сбрасываем dedup статусов: следующий warning после новой анкеты
+        # должен дойти, даже если текст совпадёт с предыдущим.
+        self._last_status = ""
 
     async def notify_status(self, text: str) -> None:
         """Send a status message (used for warnings, rotation progress, etc)."""
@@ -242,7 +259,7 @@ class TgBot:
             await self._handle_age_input(uid, text)
             return
         if pending == "await_letter":
-            await self._send_letter(custom_text=text, auto=False)
+            await self._send_letter(text)
             return
 
         # — bare commands —
@@ -251,16 +268,7 @@ class TgBot:
             return
 
         # — button presses (match by prefix because labels include state) —
-        if text.startswith("❤️ Лайк"):
-            await self._react("❤️")
-        elif text.startswith("👎 Дизлайк"):
-            await self._react("👎")
-        elif text.startswith("💌 / 📹 авто"):
-            await self._send_letter(custom_text="", auto=True)
-        elif text.startswith("💌 / 📹 своё"):
-            self._pending_input[uid] = "await_letter"
-            await self._send_to(uid, "✏️ Пришли текст одним сообщением — отправлю его после 💌 / 📹.")
-        elif text.startswith("Авто-лайк"):
+        if text.startswith("Авто-лайк"):
             await self._toggle_auto_like()
         elif text.startswith("Авто-дизлайк"):
             await self._toggle_auto_dislike()
@@ -269,7 +277,7 @@ class TgBot:
         elif text.startswith("Возраст"):
             self._pending_input[uid] = "await_age"
             await self._send_to(uid, "✏️ Пришли диапазон в формате `18-25` или `off`.")
-        elif text.startswith("🔄 Переключить аккаунт"):
+        elif text.startswith("🔄"):  # "🔄 Аккаунт: +7... →" — номер динамический
             await self._switch_account()
         elif text.startswith("ℹ️ Статус"):
             await self._send_status_dump(uid)
@@ -279,7 +287,7 @@ class TgBot:
     # ─── handlers ──────────────────────────────────────────────────────
 
     async def _react(self, emoji: str) -> None:
-        from app import tg
+        from app import settings, tg
         async with state.lock:
             if state.warning or state.current_profile is None:
                 await self._broadcast("Нет активной анкеты — нечего отправлять.")
@@ -297,39 +305,44 @@ class TgBot:
                 elif emoji == "👎":
                     state.dislike_count += 1
                 state.busy = False
+            settings.save()
             self._last_profile_id = None
         await self._broadcast(f"✅ Отправлено: {emoji}")
 
-    async def _send_letter(self, custom_text: str, auto: bool) -> None:
+    async def _send_letter(self, text: str) -> None:
         from app.profile import _deferred_letter
         async with state.lock:
             if state.warning or state.current_profile is None:
                 await self._broadcast("Нет активной анкеты — нечего слать письмо.")
                 return
-            description = state.current_profile.get("description", "")
-        asyncio.create_task(_deferred_letter(description, custom_text, auto))
-        suffix = " (авто)" if auto or not custom_text.strip() else ""
-        await self._broadcast(f"💌 Отправляю письмо{suffix}…")
+        asyncio.create_task(_deferred_letter(text))
+        await self._broadcast("💌 Отправляю письмо…")
 
     async def _toggle_auto_like(self) -> None:
+        from app import settings
         async with state.lock:
             state.auto_like_mode = not state.auto_like_mode
             if state.auto_like_mode:
                 state.auto_dislike_mode = False
+            settings.save()
         await self.notify_keyboard()
 
     async def _toggle_auto_dislike(self) -> None:
+        from app import settings
         async with state.lock:
             state.auto_dislike_mode = not state.auto_dislike_mode
             if state.auto_dislike_mode:
                 state.auto_like_mode = False
+            settings.save()
         await self.notify_keyboard()
 
     async def _toggle_only_new(self) -> None:
+        from app import settings
         async with state.lock:
             state.only_new_mode = not state.only_new_mode
             if state.only_new_mode:
                 state.auto_dislike_count = 0
+            settings.save()
         await self.notify_keyboard()
 
     async def _switch_account(self) -> None:
@@ -338,11 +351,13 @@ class TgBot:
         await self._broadcast("🔄 Переключаю аккаунт…")
 
     async def _handle_age_input(self, uid: int, text: str) -> None:
+        from app import settings
         t = text.strip().lower().replace("—", "-")
         if t in ("off", "выкл", "-", "—"):
             async with state.lock:
                 state.age_min = None
                 state.age_max = None
+                settings.save()
             await self.notify_keyboard()
             return
         parts = [p.strip() for p in t.split("-") if p.strip()]
@@ -363,7 +378,51 @@ class TgBot:
         async with state.lock:
             state.age_min = mn
             state.age_max = mx
+            settings.save()
         await self.notify_keyboard()
+
+    # ─── inline-button callback ─────────────────────────────────────────
+
+    async def _on_callback(self, event: events.CallbackQuery.Event) -> None:
+        uid = event.sender_id
+        if uid not in self.admin_ids:
+            try:
+                await event.answer("Доступ запрещён.", alert=True)
+            except Exception:
+                pass
+            return
+        data = event.data or b""
+        try:
+            if data == b"like":
+                await self._react("❤️")
+                try:
+                    await event.edit("✅ Лайк отправлен")
+                except Exception:
+                    pass
+            elif data == b"dislike":
+                await self._react("👎")
+                try:
+                    await event.edit("✅ Дизлайк отправлен")
+                except Exception:
+                    pass
+            elif data == b"letter":
+                async with state.lock:
+                    if state.warning or state.current_profile is None:
+                        await event.answer("Нет активной анкеты.", alert=True)
+                        return
+                self._pending_input[uid] = "await_letter"
+                try:
+                    await event.edit("💌 Жду текст одним сообщением…")
+                except Exception:
+                    pass
+            else:
+                await event.answer("Неизвестно.", alert=True)
+        except Exception:
+            log.exception("Callback handler failed")
+            try:
+                await event.answer("Ошибка.", alert=True)
+            except Exception:
+                pass
 
     async def _send_status_dump(self, uid: int) -> None:
         from app import tg

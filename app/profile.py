@@ -32,15 +32,9 @@ def _is_priority_match(description: str) -> bool:
         return False
 
 
-def _auto_letter_reply(age: int | None) -> str:
-    if age is not None and age <= 19:
-        return "привки, мне 19"
-    return "привки, где учишься?"
-
-
-async def _deferred_letter(description: str, custom_text: str, auto: bool) -> None:
-    """💌 / 📹: отправить запрос, дождаться не-анкеты и ответить (кастомным или авто-текстом по возрасту)."""
-    age = _parse_age(description)
+async def _deferred_letter(text: str) -> None:
+    """💌 / 📹: отправить запрос, дождаться не-анкеты и ответить ручным текстом.
+    Если text пустой — только '💌 / 📹' уходит, без второго сообщения."""
     async with state.lock:
         state.letter_pending = True
         state.status_message = "Отправка 💌 / 📹…"
@@ -50,13 +44,11 @@ async def _deferred_letter(description: str, custom_text: str, auto: bool) -> No
     try:
         await tg.send_reaction("💌 / 📹")
         await asyncio.sleep(1.5)
-        text = (custom_text or "").strip()
-        if auto or not text:
-            reply = _auto_letter_reply(age)
+        if text.strip():
+            await tg.send_reaction(text)
+            log.info("Letter: sent '💌 / 📹' + %r", text)
         else:
-            reply = text
-        await tg.send_reaction(reply)
-        log.info("Letter: sent '💌 / 📹' + reply=%r (auto=%s age=%s)", reply, auto, age)
+            log.info("Letter: sent '💌 / 📹' (no follow-up text)")
     except Exception:
         log.exception("Letter send failed")
         async with state.lock:
@@ -219,6 +211,7 @@ async def handle_messages(messages: list[Message]) -> None:
     """Pipeline entry point. Called for each unit (single message or album) from the bot."""
     async with state.lock:
         state.busy = True
+        state.last_message_at = time.monotonic()
         prev_pid = state.current_profile.get("id") if state.current_profile else None
         prev_status = state.status_message
         prev_warning = state.warning
@@ -244,8 +237,12 @@ async def _notify_tg_bot(prev_pid, prev_status: str, prev_warning: bool) -> None
             await bot.notify_profile()
         if state.status_message and state.status_message != prev_status:
             await bot.notify_status(state.status_message)
-        elif state.warning and not prev_warning and not state.status_message:
-            await bot.notify_status("⚠️ Бот прислал не-анкету. Проверь Telegram.")
+        # Independent: any False→True warning transition gets its own alert.
+        if state.warning and not prev_warning:
+            await bot.notify_status(
+                "⚠️ Проблема: бот прислал не-анкету или сломалась сессия. "
+                "Открой @leomatchbot."
+            )
     except Exception:
         log.exception("tg_bot notification failed")
 
@@ -324,6 +321,8 @@ async def _process(messages: list[Message]) -> None:
             state.auto_dislike_count += 1
             state.current_profile = None
             state.warning = False
+            from . import settings
+            settings.save()
             return
 
         if state.auto_like_mode:
@@ -333,6 +332,8 @@ async def _process(messages: list[Message]) -> None:
             state.like_count += 1
             state.current_profile = None
             state.warning = False
+            from . import settings
+            settings.save()
             return
 
         files = _publish_media(profile_id, downloaded, temp_dir)

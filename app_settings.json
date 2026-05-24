@@ -1,0 +1,10 @@
+{
+  "only_new_mode": true,
+  "auto_dislike_mode": false,
+  "auto_like_mode": false,
+  "age_min": 17,
+  "age_max": 21,
+  "auto_dislike_count": 1230,
+  "like_count": 17,
+  "dislike_count": 4
+}

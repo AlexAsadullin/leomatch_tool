@@ -26,11 +26,8 @@ SESSION_NAME = os.getenv("SESSION_NAME", "leodv")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "leomatchbot")
 
 # Optional Telegram-bot UI (replacement for the web frontend).
+# Admins выводятся автоматически из TG_PHONES при старте — отдельной переменной нет.
 TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "").strip()
-TG_BOT_ADMIN_IDS: list[int] = [
-    int(x) for x in (s.strip() for s in os.getenv("TG_BOT_ADMIN_IDS", "").split(","))
-    if x.isdigit()
-]
 
 
 def session_path(phone: str) -> Path:

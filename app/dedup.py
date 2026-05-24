@@ -47,11 +47,18 @@ def init_indexes() -> None:
     """
     _by_desc.clear()
     _by_hash.clear()
-    with sqlite3.connect(DB_PATH) as conn:
+    # NB: `with sqlite3.connect(...)` only commits on exit, it does NOT close
+    # the connection. Do it explicitly so we don't hold a sqlite file lock
+    # past startup (which can interfere with later DB ops like backup copies).
+    conn = sqlite3.connect(DB_PATH)
+    try:
         cur = conn.execute("SELECT id, description, first_media_hash FROM profiles")
         for pid, desc, h in cur:
             _by_desc.setdefault(canonicalize(desc), pid)
             _by_hash.setdefault(h, pid)
+        cur.close()
+    finally:
+        conn.close()
 
 
 def find_duplicate(description: str, hashes: Iterable[str]) -> int | None:

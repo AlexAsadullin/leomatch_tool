@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, dedup, tg
-from .config import DB_PATH, MEDIA_DIR, PHONES, STATIC_DIR, TG_BOT_ADMIN_IDS, TG_BOT_TOKEN
+from .config import DB_PATH, MEDIA_DIR, PHONES, STATIC_DIR, TG_BOT_TOKEN
 from .profile import handle_messages, _deferred_rotate, _deferred_letter
 from .state import state
 
@@ -37,16 +37,17 @@ async def lifespan(app: FastAPI):
     state.total_accounts = tg.total_accounts()
 
     # Optional Telegram-bot UI (mirror of the web frontend). Skipped if no token.
-    if TG_BOT_TOKEN and TG_BOT_ADMIN_IDS:
+    # Admins выводятся автоматически из TG_PHONES — bootstrap делает /start от
+    # каждого юзер-аккаунта боту, чтобы тот занёс их entity в свою сессию.
+    if TG_BOT_TOKEN:
         from tg_bot.bot import init as init_bot
-        bot = init_bot(TG_BOT_TOKEN, TG_BOT_ADMIN_IDS)
+        bot = init_bot(TG_BOT_TOKEN)
         try:
             await bot.start()
-            log.info("Telegram bot enabled, admins=%s", TG_BOT_ADMIN_IDS)
+            await bot.bootstrap_admins(PHONES)
+            log.info("Telegram bot enabled, admins=%s", sorted(bot.admin_ids))
         except Exception:
             log.exception("Failed to start Telegram bot — continuing without it")
-    elif TG_BOT_TOKEN:
-        log.warning("TG_BOT_TOKEN set but TG_BOT_ADMIN_IDS is empty — bot disabled")
 
     log.info("Telethon connected; bootstrapping latest message")
     try:

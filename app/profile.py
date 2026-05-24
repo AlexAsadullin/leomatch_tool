@@ -65,41 +65,30 @@ async def _deferred_letter(description: str, custom_text: str, auto: bool) -> No
 
 
 async def _deferred_rotate() -> None:
-    """Rotation runs as a separate task. state.lock is held ONLY for brief field
-    mutations — never across the long network I/O — otherwise the new account's
-    incoming-message handler (also needing state.lock) would block indefinitely."""
-    log.info("=== Deferred rotation starting ===")
+    """Rotation runs as separate task to avoid CancelledError when disconnecting from inside event handler."""
     async with state.lock:
-        state.current_profile = None
-        state.priority_alert = False
-        state.letter_pending = False
-        state.status_message = "Меняю аккаунт…"
-        state.warning = False
-    try:
-        switched = await tg.rotate_account()
-        if switched:
-            new_phone = tg._phones[tg.current_idx()]
-            async with state.lock:
+        try:
+            log.info("=== Deferred rotation starting ===")
+            switched = await tg.rotate_account()
+            if switched:
                 state.active_account_idx = tg.current_idx()
+                new_phone = tg._phones[tg.current_idx()]
+                log.info("Switched to account index=%s phone=%s, kicking off session", tg.current_idx(), new_phone)
                 state.status_message = ""
-                state.warning = False
-            log.info("Switched to phone=%s, sending kickoff '1'", new_phone)
-            try:
-                await tg.send_reaction("1")
-                log.info("Sent kickoff '1' on phone=%s", new_phone)
-            except Exception:
-                log.exception("Kickoff send failed on phone=%s", new_phone)
-            return
-        log.warning("All accounts exhausted")
-        backup = DB_PATH.with_name("data_backup.db")
-        shutil.copy2(DB_PATH, backup)
-        log.info("DB backed up to %s", backup)
-        async with state.lock:
+                try:
+                    await tg.send_reaction("1")
+                    log.info("Sent kickoff '1' to bot on phone=%s", new_phone)
+                except Exception:
+                    log.exception("Kickoff send failed on phone=%s — waiting for bot to message us", new_phone)
+                return
+            log.warning("All accounts exhausted")
+            backup = DB_PATH.with_name("data_backup.db")
+            shutil.copy2(DB_PATH, backup)
+            log.info("DB backed up to %s", backup)
             state.status_message = "Лимиты на всех аккаунтах исчерпаны — авто-скроллинг окончен до завтра"
             state.warning = False
-    except Exception:
-        log.exception("Deferred rotation failed unexpectedly")
-        async with state.lock:
+        except Exception:
+            log.exception("Deferred rotation failed unexpectedly")
             state.status_message = ""
             state.warning = True
 

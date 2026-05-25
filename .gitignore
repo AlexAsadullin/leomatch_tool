@@ -7,3 +7,5 @@ __pycache__/
 *.db
 media/
 .DS_Store
+app_settings.json
+app_stats.json

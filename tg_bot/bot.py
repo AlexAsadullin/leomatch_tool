@@ -134,18 +134,17 @@ class TgBot:
     # ─── keyboard ───────────────────────────────────────────────────────
 
     def _keyboard(self) -> list[list[Button]]:
-        from app import tg as user_tg
-        current_phone = (
-            user_tg._phones[user_tg._current_idx] if user_tg._phones else "—"
-        )
         return [
             [
                 _btn(f"Авто-лайк: {_on_off(state.auto_like_mode)}"),
                 _btn(f"Авто-дизлайк: {_on_off(state.auto_dislike_mode)}"),
             ],
-            [_btn(f"Только новые: {_on_off(state.only_new_mode)}")],
+            [
+                _btn(f"Только новые: {_on_off(state.only_new_mode)}"),
+                _btn(f"Авто-смена акков: {_on_off(state.auto_rotate_mode)}"),
+            ],
             [_btn(_format_age())],
-            [_btn(f"🔄 Аккаунт: {current_phone} →"), _btn("ℹ️ Статус")],
+            [_btn("🔄 Переключить аккаунт"), _btn("ℹ️ Статус")],
         ]
 
     # ─── outbound helpers ───────────────────────────────────────────────
@@ -155,7 +154,10 @@ class TgBot:
         if not self._client:
             return
         kb = self._keyboard()
-        for uid in self.admin_ids:
+        # Snapshot — bootstrap_admins может дозаписывать admin_ids в фоне, и
+        # await внутри цикла отдаёт control, что без снапшота даёт
+        # "Set changed size during iteration".
+        for uid in tuple(self.admin_ids):
             try:
                 await self._client.send_message(uid, text, buttons=kb, **kwargs)
             except Exception:
@@ -205,7 +207,7 @@ class TgBot:
             Button.inline("👎 Дизлайк", b"dislike"),
             Button.inline("💌 Сообщение", b"letter"),
         ]]
-        for uid in self.admin_ids:
+        for uid in tuple(self.admin_ids):
             try:
                 if len(media_paths) > 1:
                     await self._client.send_file(uid, media_paths)
@@ -274,10 +276,12 @@ class TgBot:
             await self._toggle_auto_dislike()
         elif text.startswith("Только новые"):
             await self._toggle_only_new()
+        elif text.startswith("Авто-смена акков"):
+            await self._toggle_auto_rotate()
         elif text.startswith("Возраст"):
             self._pending_input[uid] = "await_age"
             await self._send_to(uid, "✏️ Пришли диапазон в формате `18-25` или `off`.")
-        elif text.startswith("🔄"):  # "🔄 Аккаунт: +7... →" — номер динамический
+        elif text.startswith("🔄"):
             await self._switch_account()
         elif text.startswith("ℹ️ Статус"):
             await self._send_status_dump(uid)
@@ -287,7 +291,7 @@ class TgBot:
     # ─── handlers ──────────────────────────────────────────────────────
 
     async def _react(self, emoji: str) -> None:
-        from app import settings, tg
+        from app import settings, stats, tg
         async with state.lock:
             if state.warning or state.current_profile is None:
                 await self._broadcast("Нет активной анкеты — нечего отправлять.")
@@ -296,14 +300,17 @@ class TgBot:
         try:
             await tg.send_reaction(emoji)
         finally:
+            active_phone = tg._phones[tg._current_idx] if tg._phones else ""
             async with state.lock:
                 state.current_profile = None
                 state.priority_alert = False
                 state.letter_pending = False
                 if emoji == "❤️":
                     state.like_count += 1
+                    stats.bump(active_phone, "likes")
                 elif emoji == "👎":
                     state.dislike_count += 1
+                    stats.bump(active_phone, "dislikes")
                 state.busy = False
             settings.save()
             self._last_profile_id = None
@@ -345,10 +352,48 @@ class TgBot:
             settings.save()
         await self.notify_keyboard()
 
+    async def _toggle_auto_rotate(self) -> None:
+        from app import settings
+        async with state.lock:
+            state.auto_rotate_mode = not state.auto_rotate_mode
+            settings.save()
+        await self.notify_keyboard()
+
     async def _switch_account(self) -> None:
+        from app import tg as user_tg
         from app.profile import _deferred_rotate
+        old_phone = (
+            user_tg._phones[user_tg._current_idx] if user_tg._phones else "?"
+        )
+        old_idx = user_tg._current_idx
+        await self._broadcast(f"🔄 Смена аккаунта: {old_phone} → …")
         asyncio.create_task(_deferred_rotate())
-        await self._broadcast("🔄 Переключаю аккаунт…")
+        # Параллельно ждём, когда ротация реально завершится. Эндпоинт сам по
+        # себе не пуляет уведомлений; следим за изменением _current_idx или
+        # появлением status_message «Лимиты на всех аккаунтах…».
+        asyncio.create_task(self._await_rotation_result(old_phone, old_idx))
+
+    async def _await_rotation_result(self, old_phone: str, old_idx: int) -> None:
+        from app import tg as user_tg
+        deadline = asyncio.get_event_loop().time() + 60.0
+        while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(0.5)
+            # успешная ротация: _current_idx сменился
+            if user_tg._current_idx != old_idx:
+                new_phone = (
+                    user_tg._phones[user_tg._current_idx]
+                    if user_tg._phones else "?"
+                )
+                await self._broadcast(f"✅ Аккаунт сменён: {old_phone} → {new_phone}")
+                return
+            # все аккаунты исчерпаны: status_message выставлен в эндпоинте
+            if state.status_message and "Лимиты" in state.status_message:
+                await self._broadcast(f"⛔️ {state.status_message}")
+                return
+        await self._broadcast(
+            "⚠️ Смена аккаунта не подтверждена за 60 с. "
+            "Проверь логи uvicorn."
+        )
 
     async def _handle_age_input(self, uid: int, text: str) -> None:
         from app import settings
@@ -425,22 +470,56 @@ class TgBot:
                 pass
 
     async def _send_status_dump(self, uid: int) -> None:
-        from app import tg
+        from app import stats, tg
         snap = state.snapshot()
         active = tg._phones[tg._current_idx] if tg._phones else "—"
-        msg = (
+        head = (
             f"📊 Статус\n"
             f"Аккаунт: {active}\n"
             f"Авто-лайк: {_on_off(state.auto_like_mode)}\n"
             f"Авто-дизлайк: {_on_off(state.auto_dislike_mode)}\n"
             f"Только новые: {_on_off(state.only_new_mode)}\n"
+            f"Авто-смена акков: {_on_off(state.auto_rotate_mode)}\n"
             f"{_format_age()}\n"
-            f"❤️ {state.like_count} · 👎 {state.dislike_count} · "
-            f"авто 👎 {state.auto_dislike_count}\n"
             f"Статус: {snap.get('status_message') or '—'}\n"
             f"Warning: {snap.get('warning')}"
         )
-        await self._send_to(uid, msg)
+
+        s = stats.summary()
+        since = s.get("since", "—")
+        per = s.get("per_account", {})
+        totals = s.get("totals", {})
+
+        # Шапка таблицы — короткие колонки, чтобы помещалось в моноширинный блок
+        lines = [
+            f"\n\n📈 Stats с {since[:16] if since else '—'}",
+            "<pre>",
+            f"{'аккаунт':<14}{'❤️':>4}{'👎':>5}{'aL':>5}{'aD':>5}{'new':>6}",
+        ]
+        for phone, ast in sorted(per.items()):
+            short = phone if len(phone) <= 14 else phone[-13:]
+            lines.append(
+                f"{short:<14}"
+                f"{ast.get('likes',0):>4}"
+                f"{ast.get('dislikes',0):>5}"
+                f"{ast.get('auto_likes',0):>5}"
+                f"{ast.get('auto_dislikes',0):>5}"
+                f"{ast.get('new_profiles',0):>6}"
+            )
+        lines.append(
+            f"{'ИТОГО':<14}"
+            f"{totals.get('likes',0):>4}"
+            f"{totals.get('dislikes',0):>5}"
+            f"{totals.get('auto_likes',0):>5}"
+            f"{totals.get('auto_dislikes',0):>5}"
+            f"{totals.get('new_profiles',0):>6}"
+        )
+        lines.append("</pre>")
+        lines.append("aL=авто-лайк · aD=авто-дизлайк · new=новых в БД")
+
+        await self._client.send_message(
+            uid, head + "\n".join(lines), buttons=self._keyboard(), parse_mode="html",
+        )
 
 
 # ─── module-level singleton (so app.profile can find the bot) ──────────

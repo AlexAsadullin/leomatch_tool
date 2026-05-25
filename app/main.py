@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, dedup, settings, tg
+from . import db, dedup, settings, stats, tg
 from .config import DB_PATH, MEDIA_DIR, PHONES, STATIC_DIR, TG_BOT_TOKEN
 from .profile import handle_messages, _deferred_rotate, _deferred_letter
 from .state import state
@@ -53,6 +53,7 @@ async def _watchdog() -> None:
 async def lifespan(app: FastAPI):
     db.init()
     settings.load()    # ← восстанавливаем сохранённые режимы/фильтры/счётчики
+    stats.load_and_maybe_reset()   # ← per-account stats; сброс лениво на 05:00
     dedup.init_indexes()
     log.info("dedup indexes loaded: %s", dedup.stats())
     if DB_PATH.exists():
@@ -132,14 +133,17 @@ async def _react(text: str):
     try:
         await tg.send_reaction(text)
     finally:
+        active_phone = tg._phones[tg._current_idx] if tg._phones else ""
         async with state.lock:
             state.current_profile = None
             state.priority_alert = False
             state.letter_pending = False
             if text == "❤️":
                 state.like_count += 1
+                stats.bump(active_phone, "likes")
             elif text == "👎":
                 state.dislike_count += 1
+                stats.bump(active_phone, "dislikes")
         settings.save()
     return {"ok": True}
 
@@ -189,6 +193,15 @@ async def toggle_only_new():
         state.only_new_mode = not state.only_new_mode
         if state.only_new_mode:
             state.auto_dislike_count = 0
+        settings.save()
+        return state.snapshot()
+
+
+@app.post("/api/auto-rotate/toggle")
+async def toggle_auto_rotate():
+    """Авто-смена аккаунтов при срабатывании лимита (только лимит!)."""
+    async with state.lock:
+        state.auto_rotate_mode = not state.auto_rotate_mode
         settings.save()
         return state.snapshot()
 

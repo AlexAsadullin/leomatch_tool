@@ -1,0 +1,26 @@
+{
+  "last_reset": "2026-05-25T05:00:00",
+  "per_account": {
+    "+79648395469": {
+      "likes": 0,
+      "dislikes": 0,
+      "auto_likes": 23,
+      "auto_dislikes": 1382,
+      "new_profiles": 24
+    },
+    "+79334295469": {
+      "likes": 0,
+      "dislikes": 0,
+      "auto_likes": 0,
+      "auto_dislikes": 0,
+      "new_profiles": 0
+    },
+    "+79334195469": {
+      "likes": 0,
+      "dislikes": 0,
+      "auto_likes": 0,
+      "auto_dislikes": 0,
+      "new_profiles": 0
+    }
+  }
+}

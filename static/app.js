@@ -15,6 +15,7 @@
     letterBtn: document.getElementById("letterBtn"),
     letterInput: document.getElementById("letterInput"),
     autoDislikeBtn: document.getElementById("autoDislikeBtn"),
+    autoRotateBtn: document.getElementById("autoRotateBtn"),
     modeBtn: document.getElementById("modeBtn"),
     autoCount: document.getElementById("autoCount"),
     likeCount: document.getElementById("likeCount"),
@@ -139,6 +140,8 @@
     els.autoLikeBtn.textContent = `Авто-лайк: ${state.auto_like_mode ? "ON" : "OFF"}`;
     els.modeBtn.classList.toggle("active", state.only_new_mode);
     els.modeBtn.textContent = `Только новые: ${state.only_new_mode ? "ON" : "OFF"}`;
+    els.autoRotateBtn.classList.toggle("active", state.auto_rotate_mode);
+    els.autoRotateBtn.textContent = `Авто-смена акков: ${state.auto_rotate_mode ? "ON" : "OFF"}`;
     els.autoCount.textContent = String(state.auto_dislike_count);
     els.likeCount.textContent = String(state.like_count ?? 0);
     els.dislikeCount.textContent = String(state.dislike_count ?? 0);
@@ -246,6 +249,10 @@
   });
   els.modeBtn.addEventListener("click", async () => {
     const r = await fetch("/api/only-new/toggle", { method: "POST" });
+    if (r.ok) render(await r.json());
+  });
+  els.autoRotateBtn.addEventListener("click", async () => {
+    const r = await fetch("/api/auto-rotate/toggle", { method: "POST" });
     if (r.ok) render(await r.json());
   });
   els.switchAccountBtn.addEventListener("click", async () => {

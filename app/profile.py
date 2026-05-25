@@ -84,6 +84,19 @@ async def _deferred_rotate() -> None:
             state.status_message = ""
             state.warning = True
 
+
+async def _notify_bot_status(text: str) -> None:
+    """Тонкий хелпер: пнуть TG-бот, если он есть. НЕ блокирует state.lock —
+    отправка идёт в фоне через create_task. Используется ТОЛЬКО для авто-фильтра
+    в _process (не трогает рротационный эндпоинт)."""
+    try:
+        from tg_bot.bot import get_bot
+        bot = get_bot()
+        if bot:
+            asyncio.create_task(bot.notify_status(text))
+    except Exception:
+        log.exception("notify_bot_status failed")
+
 def _is_photo(msg: Message) -> bool:
     return msg.photo is not None
 
@@ -251,12 +264,18 @@ async def _process(messages: list[Message]) -> None:
     # Check for limit message first — bot may attach media to this message too
     text = _extract_text(messages)
     if _is_limit_message(text):
-        log.info("Limit hit — blocking UI, manual account switch required")
         state.current_profile = None
         state.priority_alert = False
         state.letter_pending = False
-        state.status_message = "Лимит исчерпан — смените аккаунт вручную (кнопка «Переключить аккаунт»)"
-        state.warning = True
+        if state.auto_rotate_mode:
+            log.info("Limit hit — auto-rotating (re-using manual switch endpoint)")
+            state.status_message = "Лимит — авто-смена аккаунта…"
+            state.warning = False
+            asyncio.create_task(_deferred_rotate())
+        else:
+            log.info("Limit hit — blocking UI, manual account switch required")
+            state.status_message = "Лимит исчерпан — смените аккаунт вручную (кнопка «Переключить аккаунт»)"
+            state.warning = True
         return
 
     has_any_media = any(_has_media(m) for m in messages)
@@ -294,10 +313,14 @@ async def _process(messages: list[Message]) -> None:
             state.warning = False
             return
 
+        from . import settings, stats
+        active_phone = tg._phones[tg._current_idx] if tg._phones else ""
+
         dup_id = dedup.find_duplicate(description, all_hashes)
         if dup_id is None:
             profile_id = db.insert_profile(description, first_hash)
             dedup.register(profile_id, description, first_hash)
+            stats.bump(active_phone, "new_profiles")
             seen_count = 1
         else:
             profile_id = dup_id
@@ -319,10 +342,12 @@ async def _process(messages: list[Message]) -> None:
             shutil.rmtree(temp_dir, ignore_errors=True)
             await tg.send_reaction("👎")
             state.auto_dislike_count += 1
+            stats.bump(active_phone, "auto_dislikes")
             state.current_profile = None
             state.warning = False
-            from . import settings
             settings.save()
+            # сообщения в чат не шлём — авто-дизлайк бьёт пачками,
+            # счётчики видно в "ℹ️ Статус"
             return
 
         if state.auto_like_mode:
@@ -330,10 +355,13 @@ async def _process(messages: list[Message]) -> None:
             shutil.rmtree(temp_dir, ignore_errors=True)
             await tg.send_reaction("❤️")
             state.like_count += 1
+            stats.bump(active_phone, "auto_likes")
             state.current_profile = None
             state.warning = False
-            from . import settings
             settings.save()
+            await _notify_bot_status(
+                f"❤️ Авто-лайк · id={profile_id} · {description[:50]}"
+            )
             return
 
         files = _publish_media(profile_id, downloaded, temp_dir)

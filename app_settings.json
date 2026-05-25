@@ -1,10 +1,11 @@
 {
   "only_new_mode": true,
   "auto_dislike_mode": false,
-  "auto_like_mode": false,
+  "auto_like_mode": true,
+  "auto_rotate_mode": true,
   "age_min": 17,
   "age_max": 21,
-  "auto_dislike_count": 1230,
-  "like_count": 17,
-  "dislike_count": 4
+  "auto_dislike_count": 1382,
+  "like_count": 23,
+  "dislike_count": 0
 }

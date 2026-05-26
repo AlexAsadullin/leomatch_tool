@@ -359,6 +359,11 @@ class TgBot:
             settings.save()
         await self.notify_keyboard()
 
+    async def notify_rotate_start(self, old_phone: str, old_idx: int) -> None:
+        """Send rotation-start message and watch for result (called from auto-rotate)."""
+        await self._broadcast(f"🔄 Смена аккаунта: {old_phone} → …")
+        asyncio.create_task(self._await_rotation_result(old_phone, old_idx))
+
     async def _switch_account(self) -> None:
         from app import tg as user_tg
         from app.profile import _deferred_rotate

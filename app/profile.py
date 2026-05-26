@@ -271,7 +271,16 @@ async def _process(messages: list[Message]) -> None:
             log.info("Limit hit — auto-rotating (re-using manual switch endpoint)")
             state.status_message = "Лимит — авто-смена аккаунта…"
             state.warning = False
+            old_phone = tg._phones[tg._current_idx] if tg._phones else "?"
+            old_idx = tg._current_idx
             asyncio.create_task(_deferred_rotate())
+            try:
+                from tg_bot.bot import get_bot
+                bot = get_bot()
+                if bot:
+                    asyncio.create_task(bot.notify_rotate_start(old_phone, old_idx))
+            except Exception:
+                log.exception("notify rotate start failed")
         else:
             log.info("Limit hit — blocking UI, manual account switch required")
             state.status_message = "Лимит исчерпан — смените аккаунт вручную (кнопка «Переключить аккаунт»)"

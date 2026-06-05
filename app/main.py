@@ -217,14 +217,20 @@ async def rating_page():
     return FileResponse(str(STATIC_DIR / "rating.html"))
 
 
-def _thumb_url(profile_id: int) -> str | None:
+def _archive_urls(profile_id: int) -> list[str]:
     archive_dir = MEDIA_DIR / "_archive" / str(profile_id)
     if not archive_dir.exists():
-        return None
-    for f in sorted(archive_dir.iterdir()):
-        if f.is_file():
-            return f"/media/_archive/{profile_id}/{f.name}"
-    return None
+        return []
+    return [
+        f"/media/_archive/{profile_id}/{f.name}"
+        for f in sorted(archive_dir.iterdir())
+        if f.is_file()
+    ]
+
+
+def _thumb_url(profile_id: int) -> str | None:
+    urls = _archive_urls(profile_id)
+    return urls[0] if urls else None
 
 
 @app.get("/api/gallery")
@@ -248,13 +254,15 @@ async def api_get_profile(profile_id: int):
     p = db.get_profile(profile_id)
     if p is None:
         raise HTTPException(status_code=404, detail="Profile not found")
+    urls = _archive_urls(p["id"])
     return {
         "id": p["id"],
         "description": p["description"],
         "rating": p["rating"],
         "seen_count": p["seen_count"],
         "registered_at": p["registered_at"],
-        "thumb_url": _thumb_url(p["id"]),
+        "thumb_url": urls[0] if urls else None,
+        "media_urls": urls,
     }
 
 

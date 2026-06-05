@@ -4,80 +4,98 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Оценка анкет — leodv</title>
-  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <link rel="stylesheet" href="/static/style.css?v=11" />
   <style>
     body { padding-bottom: 0; }
 
     .page-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
+      display: flex; align-items: center; gap: 12px;
       padding: 12px 20px;
-      background: #fff;
-      border-bottom: 1px solid #e5e5ea;
-      position: sticky;
-      top: 0;
-      z-index: 10;
+      background: #fff; border-bottom: 1px solid #e5e5ea;
+      position: sticky; top: 0; z-index: 10;
     }
     .page-header h1 { margin: 0; font-size: 20px; flex: 1; }
 
+    /* ─── Sort + filter bar ─── */
+    .sort-bar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 9px 16px;
+      background: #f5f5f7; border-bottom: 1px solid #e5e5ea;
+      position: sticky; top: 53px; z-index: 9;
+    }
+    .sbtn {
+      padding: 6px 12px;
+      border: 1px solid #c7c7cc; background: #fff;
+      border-radius: 8px; font-size: 13px; font-weight: 500;
+      cursor: pointer; white-space: nowrap;
+    }
+    .sbtn.s-primary   { background: #007aff; color: #fff; border-color: #007aff; }
+    .sbtn.s-secondary { background: #5ac8fa; color: #fff; border-color: #5ac8fa; }
+    .sbtn.s-filter    { background: #34c759; color: #fff; border-color: #34c759; }
+    .sbtn.s-reset     { color: #ff3b30; border-color: #ff3b30; }
+    .sort-count { font-size: 13px; color: #8e8e93; margin-left: auto; }
+
+    /* ─── Filter panel ─── */
+    .filter-panel {
+      padding: 14px 16px 16px;
+      background: #fff; border-bottom: 2px solid #34c759;
+    }
+    .filter-panel.hidden { display: none; }
+    .filter-match-count {
+      font-size: 13px; font-weight: 600; color: #007aff;
+      margin-bottom: 12px;
+    }
+    .filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 14px;
+    }
+    .filter-group label.fg-label {
+      display: block; font-size: 12px; font-weight: 600;
+      color: #8e8e93; text-transform: uppercase; letter-spacing: .5px;
+      margin-bottom: 6px;
+    }
+    .filter-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .filter-input {
+      width: 70px; padding: 5px 8px;
+      border: 1px solid #c7c7cc; border-radius: 6px;
+      font-size: 13px;
+    }
+    .filter-input.wide { width: 130px; }
+    .filter-sep { font-size: 13px; color: #8e8e93; }
+    .filter-check { display: flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
+    .photo-btn {
+      padding: 5px 11px; border: 1px solid #c7c7cc; background: #fff;
+      border-radius: 6px; font-size: 13px; cursor: pointer;
+    }
+    .photo-btn.active { background: #007aff; color: #fff; border-color: #007aff; }
+
+    /* ─── Grid ─── */
     .gallery-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      gap: 12px;
-      padding: 20px 16px;
-      max-width: 960px;
-      margin: 0 auto;
+      grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+      gap: 12px; padding: 16px;
+      max-width: 960px; margin: 0 auto;
     }
-
     .gallery-item {
-      background: #fff;
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.07);
-      cursor: pointer;
-      transition: transform 0.15s, box-shadow 0.15s;
-      text-decoration: none;
-      color: inherit;
-      display: block;
+      background: #fff; border-radius: 10px; overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,.07);
+      text-decoration: none; color: inherit; display: block;
+      transition: transform .15s, box-shadow .15s;
     }
-    .gallery-item:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 14px rgba(0,0,0,0.13);
-    }
-
+    .gallery-item:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.13); }
     .gallery-thumb {
-      width: 100%;
-      aspect-ratio: 3/4;
-      object-fit: cover;
-      display: block;
-      background: #e5e5ea;
+      width: 100%; aspect-ratio: 3/4; object-fit: cover;
+      display: block; background: #e5e5ea;
     }
     .gallery-thumb-placeholder {
-      width: 100%;
-      aspect-ratio: 3/4;
-      background: #e5e5ea;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 36px;
+      width: 100%; aspect-ratio: 3/4; background: #e5e5ea;
+      display: flex; align-items: center; justify-content: center; font-size: 36px;
     }
-
-    .gallery-info {
-      padding: 8px 10px 10px;
-    }
-    .gallery-name {
-      font-size: 13px;
-      font-weight: 600;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .gallery-rating {
-      font-size: 12px;
-      color: #8e8e93;
-      margin-top: 3px;
-    }
+    .gallery-info { padding: 7px 9px 9px; }
+    .gallery-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gallery-meta { font-size: 11px; color: #8e8e93; margin-top: 3px; }
+    .gallery-rating { font-size: 12px; color: #8e8e93; margin-top: 2px; }
     .gallery-rating.rated { color: #ff9500; font-weight: 600; }
 
     #status { text-align: center; padding: 48px 16px; color: #6e6e73; font-size: 15px; }
@@ -89,51 +107,341 @@
     <a href="/" class="mode-btn" style="text-decoration:none">← Главный экран</a>
   </header>
 
+  <div class="sort-bar">
+    <button id="btnDate"   class="sbtn s-primary">Дата ↓</button>
+    <button id="btnRating" class="sbtn">Оценка</button>
+    <button id="btnSeen"   class="sbtn">Повторы</button>
+    <button id="btnFilter" class="sbtn">Фильтры</button>
+    <button id="btnReset"  class="sbtn s-reset">Сбросить</button>
+    <span class="sort-count" id="sortCount"></span>
+  </div>
+
+  <div id="filterPanel" class="filter-panel hidden">
+    <div id="filterMatchCount" class="filter-match-count"></div>
+    <div class="filter-grid">
+
+      <div class="filter-group">
+        <label class="fg-label">Оценка</label>
+        <div class="filter-row">
+          <input id="fRatingMin" class="filter-input" type="number" min="1" max="10" placeholder="от 1" />
+          <span class="filter-sep">—</span>
+          <input id="fRatingMax" class="filter-input" type="number" min="1" max="10" placeholder="до 10" />
+        </div>
+        <div class="filter-row" style="margin-top:6px">
+          <label class="filter-check">
+            <input id="fOnlyUnrated" type="checkbox" /> только не оценённые
+          </label>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <label class="fg-label">Дата добавления</label>
+        <div class="filter-row">
+          <input id="fDateFrom" class="filter-input wide" type="date" />
+          <span class="filter-sep">—</span>
+          <input id="fDateTo"   class="filter-input wide" type="date" />
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <label class="fg-label">Фото</label>
+        <div class="filter-row">
+          <button class="photo-btn active" data-v="any">Все</button>
+          <button class="photo-btn"        data-v="with">С фото</button>
+          <button class="photo-btn"        data-v="without">Без фото</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <div id="status">Загрузка…</div>
   <div id="grid" class="gallery-grid"></div>
 
   <script>
-  (async () => {
-    const status = document.getElementById('status');
-    const grid = document.getElementById('grid');
+  (() => {
+    const LS_SORT = 'leodv_gallery_sort';
+    const LS_IDS  = 'leodv_gallery_ids';
 
-    let profiles;
-    try {
-      profiles = await fetch('/api/gallery').then(r => r.json());
-    } catch (e) {
-      status.textContent = 'Ошибка загрузки';
-      return;
+    const DEFAULTS = {
+      sorts: [{ key: 'date', dir: 'desc' }],
+      filters: { ratingMin: null, ratingMax: null, onlyUnrated: false,
+                 dateFrom: null, dateTo: null, hasPhoto: 'any' },
+    };
+
+    let state = loadState();
+    let allProfiles = [];
+    let filterOpen  = false;
+
+    const btnDate    = document.getElementById('btnDate');
+    const btnRating  = document.getElementById('btnRating');
+    const btnSeen    = document.getElementById('btnSeen');
+    const btnFilter  = document.getElementById('btnFilter');
+    const btnReset   = document.getElementById('btnReset');
+    const filterPanel     = document.getElementById('filterPanel');
+    const filterMatchEl   = document.getElementById('filterMatchCount');
+    const statusEl   = document.getElementById('status');
+    const gridEl     = document.getElementById('grid');
+    const countEl    = document.getElementById('sortCount');
+
+    // Filter inputs
+    const fRatingMin  = document.getElementById('fRatingMin');
+    const fRatingMax  = document.getElementById('fRatingMax');
+    const fOnlyUnrated= document.getElementById('fOnlyUnrated');
+    const fDateFrom   = document.getElementById('fDateFrom');
+    const fDateTo     = document.getElementById('fDateTo');
+    const photoBtns   = document.querySelectorAll('.photo-btn');
+
+    // ─── State persistence ───────────────────────────────────────────
+    function loadState() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(LS_SORT) || 'null');
+        if (!raw) return clone(DEFAULTS);
+        // Migrate old format (sortBy / dir / photo at top level)
+        if ('sortBy' in raw && !('sorts' in raw)) {
+          return clone({
+            sorts: [{ key: raw.sortBy || 'date', dir: raw.dir || 'desc' }],
+            filters: { ...DEFAULTS.filters, hasPhoto: raw.photo || 'any' },
+          });
+        }
+        return clone({ ...DEFAULTS, ...raw, filters: { ...DEFAULTS.filters, ...(raw.filters || {}) } });
+      } catch { return clone(DEFAULTS); }
     }
 
-    if (!profiles.length) {
-      status.textContent = 'Анкет в базе ещё нет.';
-      return;
+    function saveState() { localStorage.setItem(LS_SORT, JSON.stringify(state)); }
+    function clone(o)    { return JSON.parse(JSON.stringify(o)); }
+
+    // ─── Sort/filter pipeline ────────────────────────────────────────
+    function filtered() {
+      const f = state.filters;
+      return allProfiles.filter(p => {
+        if (f.hasPhoto === 'with'    && !p.thumb_url) return false;
+        if (f.hasPhoto === 'without' &&  p.thumb_url) return false;
+        if (f.onlyUnrated && p.rating !== -1) return false;
+        if (!f.onlyUnrated) {
+          const hasRF = f.ratingMin !== null || f.ratingMax !== null;
+          if (hasRF && p.rating === -1) return false;
+          if (f.ratingMin !== null && p.rating < f.ratingMin) return false;
+          if (f.ratingMax !== null && p.rating > f.ratingMax) return false;
+        }
+        if (f.dateFrom) {
+          if (p.registered_at < new Date(f.dateFrom + 'T00:00:00').getTime() / 1000) return false;
+        }
+        if (f.dateTo) {
+          if (p.registered_at > new Date(f.dateTo + 'T23:59:59').getTime() / 1000) return false;
+        }
+        return true;
+      });
     }
-    status.style.display = 'none';
 
-    for (const p of profiles) {
-      const a = document.createElement('a');
-      a.href = `/rating?id=${p.id}`;
-      a.className = 'gallery-item';
-
-      const thumb = p.thumb_url
-        ? `<img class="gallery-thumb" src="${esc(p.thumb_url)}" loading="lazy" alt="" />`
-        : `<div class="gallery-thumb-placeholder">👤</div>`;
-
-      const firstName = p.description.split(/[\n,]/)[0].trim().slice(0, 28);
-      const ratingEl = p.rating === -1
-        ? `<div class="gallery-rating">не оценена</div>`
-        : `<div class="gallery-rating rated">★ ${p.rating}/10</div>`;
-
-      a.innerHTML = `${thumb}<div class="gallery-info"><div class="gallery-name">${escHtml(firstName)}</div>${ratingEl}</div>`;
-      grid.appendChild(a);
+    function sorted(list) {
+      if (!state.sorts.length) return list;
+      return [...list].sort((a, b) => {
+        for (const s of state.sorts) {
+          const mul = s.dir === 'asc' ? 1 : -1;
+          if (s.key === 'date') {
+            const d = (a.registered_at - b.registered_at) * mul;
+            if (d !== 0) return d;
+          } else if (s.key === 'rating') {
+            if (a.rating === -1 && b.rating === -1) continue;
+            if (a.rating === -1) return 1;
+            if (b.rating === -1) return -1;
+            const d = (a.rating - b.rating) * mul;
+            if (d !== 0) return d;
+          } else if (s.key === 'seen') {
+            const d = (a.seen_count - b.seen_count) * mul;
+            if (d !== 0) return d;
+          }
+        }
+        return 0;
+      });
     }
+
+    // ─── Sort button toggle (inactive → desc → asc → inactive) ──────
+    function toggleSort(key) {
+      const idx = state.sorts.findIndex(s => s.key === key);
+      if (idx === -1) {
+        state.sorts.push({ key, dir: 'desc' });
+      } else if (state.sorts[idx].dir === 'desc') {
+        state.sorts[idx].dir = 'asc';
+      } else {
+        state.sorts.splice(idx, 1);
+      }
+      saveState(); renderGallery();
+    }
+
+    // ─── UI update ───────────────────────────────────────────────────
+    function sortBtnLabel(key) {
+      const idx = state.sorts.findIndex(s => s.key === key);
+      const name = key === 'date' ? 'Дата' : key === 'rating' ? 'Оценка' : 'Повторы';
+      if (idx === -1) return name;
+      const arr  = state.sorts[idx].dir === 'desc' ? '↓' : '↑';
+      const badge = state.sorts.length > 1 ? ' ' + ['①','②'][idx] : '';
+      return `${name} ${arr}${badge}`;
+    }
+
+    function updateControls() {
+      const di = state.sorts.findIndex(s => s.key === 'date');
+      const ri = state.sorts.findIndex(s => s.key === 'rating');
+      const si = state.sorts.findIndex(s => s.key === 'seen');
+      btnDate.textContent   = sortBtnLabel('date');
+      btnDate.className     = 'sbtn' + (di === 0 ? ' s-primary' : di > 0 ? ' s-secondary' : '');
+      btnRating.textContent = sortBtnLabel('rating');
+      btnRating.className   = 'sbtn' + (ri === 0 ? ' s-primary' : ri > 0 ? ' s-secondary' : '');
+      btnSeen.textContent   = sortBtnLabel('seen');
+      btnSeen.className     = 'sbtn' + (si === 0 ? ' s-primary' : si > 0 ? ' s-secondary' : '');
+
+      const fc = activeFilterCount();
+      btnFilter.textContent = fc > 0 ? `Фильтры (${fc})` : 'Фильтры';
+      btnFilter.className   = 'sbtn' + (filterOpen || fc > 0 ? ' s-filter' : '');
+    }
+
+    function syncFilterInputs() {
+      const f = state.filters;
+      fRatingMin.value  = f.ratingMin ?? '';
+      fRatingMax.value  = f.ratingMax ?? '';
+      fOnlyUnrated.checked = !!f.onlyUnrated;
+      fDateFrom.value   = f.dateFrom ?? '';
+      fDateTo.value     = f.dateTo   ?? '';
+      photoBtns.forEach(b => b.classList.toggle('active', b.dataset.v === f.hasPhoto));
+    }
+
+    function activeFilterCount() {
+      const f = state.filters;
+      let n = 0;
+      if (f.hasPhoto !== 'any') n++;
+      if (f.onlyUnrated) n++;
+      if (f.ratingMin !== null || f.ratingMax !== null) n++;
+      if (f.dateFrom  !== null || f.dateTo    !== null) n++;
+      return n;
+    }
+
+    // ─── Render ──────────────────────────────────────────────────────
+    function renderGallery() {
+      const list = sorted(filtered());
+      localStorage.setItem(LS_IDS, JSON.stringify(list.map(p => p.id)));
+      updateControls();
+      const total = allProfiles.length;
+      const match = list.length;
+      countEl.textContent = match < total
+        ? `${match} / ${total} анкет`
+        : `${total} анкет`;
+      filterMatchEl.textContent = match < total
+        ? `Подходит: ${match} из ${total} анкет`
+        : `Все ${total} анкет`;
+
+      gridEl.innerHTML = '';
+      for (const p of list) {
+        const a = document.createElement('a');
+        a.href = `/rating?id=${p.id}`;
+        a.className = 'gallery-item';
+
+        const thumb = p.thumb_url
+          ? `<img class="gallery-thumb" src="${esc(p.thumb_url)}" loading="lazy" alt="" />`
+          : `<div class="gallery-thumb-placeholder">👤</div>`;
+
+        const name = p.description.split(/[\n,]/)[0].trim().slice(0, 26);
+        const date = p.registered_at ? fmtDate(p.registered_at) : '';
+        const ratingEl = p.rating === -1
+          ? `<div class="gallery-rating">не оценена</div>`
+          : `<div class="gallery-rating rated">★ ${p.rating}/10</div>`;
+
+        a.innerHTML = `${thumb}<div class="gallery-info">
+          <div class="gallery-name">${escHtml(name)}</div>
+          <div class="gallery-meta">${date}</div>
+          ${ratingEl}
+        </div>`;
+        gridEl.appendChild(a);
+      }
+    }
+
+    // ─── Event handlers ──────────────────────────────────────────────
+    btnDate.addEventListener('click',   () => toggleSort('date'));
+    btnRating.addEventListener('click', () => toggleSort('rating'));
+    btnSeen.addEventListener('click',   () => toggleSort('seen'));
+
+    btnFilter.addEventListener('click', () => {
+      filterOpen = !filterOpen;
+      filterPanel.classList.toggle('hidden', !filterOpen);
+      updateControls();
+    });
+
+    btnReset.addEventListener('click', () => {
+      state = clone(DEFAULTS);
+      filterOpen = false;
+      filterPanel.classList.add('hidden');
+      saveState(); syncFilterInputs(); renderGallery();
+    });
+
+    // Filter inputs — real-time
+    fRatingMin.addEventListener('input', () => {
+      const v = parseInt(fRatingMin.value);
+      state.filters.ratingMin = isNaN(v) ? null : Math.min(10, Math.max(1, v));
+      saveState(); renderGallery();
+    });
+    fRatingMax.addEventListener('input', () => {
+      const v = parseInt(fRatingMax.value);
+      state.filters.ratingMax = isNaN(v) ? null : Math.min(10, Math.max(1, v));
+      saveState(); renderGallery();
+    });
+    fOnlyUnrated.addEventListener('change', () => {
+      state.filters.onlyUnrated = fOnlyUnrated.checked;
+      if (state.filters.onlyUnrated) {
+        state.filters.ratingMin = null;
+        state.filters.ratingMax = null;
+        fRatingMin.value = '';
+        fRatingMax.value = '';
+      }
+      saveState(); renderGallery();
+    });
+    fDateFrom.addEventListener('change', () => {
+      state.filters.dateFrom = fDateFrom.value || null;
+      saveState(); renderGallery();
+    });
+    fDateTo.addEventListener('change', () => {
+      state.filters.dateTo = fDateTo.value || null;
+      saveState(); renderGallery();
+    });
+    photoBtns.forEach(btn => btn.addEventListener('click', () => {
+      state.filters.hasPhoto = btn.dataset.v;
+      photoBtns.forEach(b => b.classList.toggle('active', b.dataset.v === state.filters.hasPhoto));
+      saveState(); renderGallery();
+    }));
+
+    // ─── Helpers ────────────────────────────────────────────────────
+    function fmtDate(ts) {
+      return new Date(ts * 1000).toLocaleDateString('ru-RU',
+        { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+    function esc(s)     { return s.replace(/"/g, '&quot;'); }
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ─── Boot ────────────────────────────────────────────────────────
+    syncFilterInputs();
+    // Restore filter panel if filters were active
+    if (activeFilterCount() > 0) {
+      filterOpen = true;
+      filterPanel.classList.remove('hidden');
+    }
+
+    (async () => {
+      try {
+        allProfiles = await fetch('/api/gallery').then(r => r.json());
+      } catch {
+        statusEl.textContent = 'Ошибка загрузки';
+        return;
+      }
+      statusEl.style.display = 'none';
+      if (!allProfiles.length) {
+        statusEl.style.display = '';
+        statusEl.textContent = 'Анкет в базе ещё нет.';
+        return;
+      }
+      renderGallery();
+    })();
   })();
-
-  function esc(s) { return s.replace(/"/g, '&quot;'); }
-  function escHtml(s) {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
   </script>
 </body>
 </html>

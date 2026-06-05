@@ -35,6 +35,16 @@ def _btn(text: str) -> Button:
     return Button.text(text, resize=True)
 
 
+def _rating_inline_kb(profile_id: int, saved: int = -1) -> list[list[Button]]:
+    """10 inline-кнопок оценки (1–10). profile_id зашит в callback data."""
+    def lbl(i: int) -> str:
+        return f"[{i}]" if i == saved else str(i)
+    return [
+        [Button.inline(lbl(i), f"rate:{i}:{profile_id}".encode()) for i in range(1, 6)],
+        [Button.inline(lbl(i), f"rate:{i}:{profile_id}".encode()) for i in range(6, 11)],
+    ]
+
+
 def _format_age() -> str:
     if state.age_filter_active:
         return f"Возраст: {state.age_min}-{state.age_max}"
@@ -235,7 +245,13 @@ class TgBot:
         await self._broadcast(text)
 
     async def notify_auto_like(self, profile: dict) -> None:
-        """Send auto-liked profile photo + caption (no action buttons)."""
+        """Send auto-liked profile: media + caption with inline rating buttons (1–10).
+
+        profile_id зашит в callback data каждой кнопки — оценка работает
+        в любое время, даже если после прислали ещё сотню авто-лайков.
+        Reply-клавиатура в сообщении не выставляется: Telegram сохраняет
+        последнюю reply-клавиатуру бота, поэтому кнопки управления остаются.
+        """
         if not self._client:
             return
         pid = profile.get("id")
@@ -250,16 +266,21 @@ class TgBot:
             if local.exists():
                 media_paths.append(str(local))
 
-        kb = self._keyboard()
+        from app import db
+        row = db.get_profile(pid) if pid else None
+        rating_kb = _rating_inline_kb(pid, row["rating"] if row else -1)
+
         for uid in tuple(self.admin_ids):
             try:
                 if len(media_paths) > 1:
                     await self._client.send_file(uid, media_paths)
-                    await self._client.send_message(uid, caption, buttons=kb)
+                    await self._client.send_message(uid, caption, buttons=rating_kb)
                 elif len(media_paths) == 1:
-                    await self._client.send_file(uid, media_paths[0], caption=caption, buttons=kb)
+                    await self._client.send_file(
+                        uid, media_paths[0], caption=caption, buttons=rating_kb,
+                    )
                 else:
-                    await self._client.send_message(uid, caption, buttons=kb)
+                    await self._client.send_message(uid, caption, buttons=rating_kb)
             except Exception:
                 log.exception("Failed to send auto-like profile to admin %s", uid)
 
@@ -507,6 +528,21 @@ class TgBot:
                 self._pending_input[uid] = "await_letter"
                 try:
                     await event.edit("💌 Жду текст одним сообщением…")
+                except Exception:
+                    pass
+            elif data.startswith(b"rate:"):
+                try:
+                    _, rating_str, pid_str = data.decode().split(":")
+                    rating_val = int(rating_str)
+                    pid = int(pid_str)
+                except (ValueError, AttributeError):
+                    await event.answer("Ошибка формата.", alert=True)
+                    return
+                from app import db
+                db.set_rating(pid, rating_val)
+                await event.answer(f"★ {rating_val}/10 — сохранено")
+                try:
+                    await event.edit(buttons=None)
                 except Exception:
                     pass
             else:

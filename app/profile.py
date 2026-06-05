@@ -180,25 +180,14 @@ def _purge_media(keep_pid: int | None) -> None:
         shutil.rmtree(child, ignore_errors=True)
 
 
-def _archive_title_media(profile_id: int, downloaded: list[tuple]) -> None:
-    """Copy the first photo (or first video) to the permanent archive for the gallery."""
-    title: Path | None = None
-    for msg, path in downloaded:
-        if _is_photo(msg):
-            title = path
-            break
-    if title is None:
-        for msg, path in downloaded:
-            if _is_video(msg):
-                title = path
-                break
-    if title is None:
-        return
+def _archive_media(profile_id: int, downloaded: list[tuple]) -> None:
+    """Copy all downloaded media to the permanent archive (idempotent — skips existing files)."""
     dest_dir = ARCHIVE_DIR / str(profile_id)
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / title.name
-    if not dest.exists():
-        shutil.copy2(str(title), str(dest))
+    for _, path in downloaded:
+        dest = dest_dir / path.name
+        if not dest.exists():
+            shutil.copy2(str(path), str(dest))
 
 
 def _publish_media(profile_id: int, downloaded: list[tuple[Message, Path]], temp_dir: Path) -> list[Path]:
@@ -391,10 +380,11 @@ async def _process(messages: list[Message]) -> None:
             dedup.register(profile_id, description, first_hash)
             stats.bump(active_phone, "new_profiles")
             seen_count = 1
-            _archive_title_media(profile_id, downloaded)
+            _archive_media(profile_id, downloaded)
         else:
             profile_id = dup_id
             seen_count = db.bump_seen(profile_id)
+            _archive_media(profile_id, downloaded)
 
         if _is_priority_match(description):
             log.info("PRIORITY MATCH: profile id=%s desc=%r", profile_id, description[:60])

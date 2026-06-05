@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Анкета — leodv</title>
+  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <style>
+    body { padding-bottom: 100px; }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: #fff;
+      border-bottom: 1px solid #e5e5ea;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .page-header h1 {
+      margin: 0;
+      font-size: 16px;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .profile-body {
+      max-width: 600px;
+      margin: 20px auto;
+      padding: 0 16px;
+    }
+
+    .profile-photo {
+      width: 100%;
+      max-height: 72vh;
+      object-fit: contain;
+      border-radius: 10px;
+      background: #000;
+      display: block;
+    }
+    .profile-photo-placeholder {
+      width: 100%;
+      aspect-ratio: 3/4;
+      background: #e5e5ea;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 64px;
+    }
+
+    .rating-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(255,255,255,0.96);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid #e5e5ea;
+      padding: 10px 16px 14px;
+      z-index: 20;
+    }
+    .rating-label {
+      text-align: center;
+      font-size: 13px;
+      color: #6e6e73;
+      margin-bottom: 8px;
+    }
+    .rating-label b { color: #ff9500; }
+    .rating-btns {
+      display: flex;
+      gap: 5px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .rating-btn {
+      flex: 1;
+      padding: 11px 0;
+      border: 1px solid #c7c7cc;
+      background: #fff;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .rating-btn:hover { background: #f5f5f7; }
+    .rating-btn.active {
+      background: #ff9500;
+      color: #fff;
+      border-color: #ff9500;
+    }
+
+    #status { text-align: center; padding: 48px 16px; color: #6e6e73; }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <a href="/gallery" class="mode-btn" style="text-decoration:none;white-space:nowrap">← Галерея</a>
+    <h1 id="headerTitle">Загрузка…</h1>
+    <a href="/" class="mode-btn" style="text-decoration:none;white-space:nowrap">Главный экран</a>
+  </header>
+
+  <div id="status">Загрузка…</div>
+  <div id="profileBody" class="profile-body" style="display:none"></div>
+
+  <div class="rating-bar" id="ratingBar" style="display:none">
+    <div class="rating-label" id="ratingLabel">Оценка: <b id="ratingValue">не оценена</b></div>
+    <div class="rating-btns" id="ratingBtns"></div>
+  </div>
+
+  <script>
+  (async () => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get('id');
+    const status = document.getElementById('status');
+
+    if (!id) { status.textContent = 'ID не указан'; return; }
+
+    let p;
+    try {
+      const r = await fetch(`/api/ratings/${id}`);
+      if (!r.ok) { status.textContent = 'Анкета не найдена'; return; }
+      p = await r.json();
+    } catch (e) {
+      status.textContent = 'Ошибка загрузки';
+      return;
+    }
+
+    const firstName = p.description.split(/[\n,]/)[0].trim();
+    document.getElementById('headerTitle').textContent = firstName;
+    document.title = firstName + ' — leodv';
+
+    status.style.display = 'none';
+    const body = document.getElementById('profileBody');
+    body.style.display = '';
+
+    const photoHtml = p.thumb_url
+      ? `<img class="profile-photo" src="${esc(p.thumb_url)}" alt="" />`
+      : `<div class="profile-photo-placeholder">👤</div>`;
+
+    const seenHtml = p.seen_count > 1
+      ? `<p class="seen">Встречалась <b>${p.seen_count}</b> раз</p>`
+      : '';
+
+    body.innerHTML = `${photoHtml}${seenHtml}<pre class="desc" style="margin-top:14px">${escHtml(p.description)}</pre>`;
+
+    // Rating buttons
+    let currentRating = p.rating;
+    const ratingBar = document.getElementById('ratingBar');
+    const ratingValue = document.getElementById('ratingValue');
+    const ratingBtns = document.getElementById('ratingBtns');
+    ratingBar.style.display = '';
+
+    function updateDisplay() {
+      ratingValue.textContent = currentRating === -1 ? 'не оценена' : `${currentRating}/10`;
+      ratingBtns.querySelectorAll('.rating-btn').forEach(btn => {
+        btn.classList.toggle('active', +btn.dataset.v === currentRating);
+      });
+    }
+
+    for (let i = 1; i <= 10; i++) {
+      const btn = document.createElement('button');
+      btn.className = 'rating-btn';
+      btn.textContent = i;
+      btn.dataset.v = i;
+      btn.addEventListener('click', async () => {
+        currentRating = i;
+        updateDisplay();
+        fetch(`/api/ratings/${id}/rate`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({rating: i}),
+        });
+      });
+      ratingBtns.appendChild(btn);
+    }
+
+    updateDisplay();
+  })();
+
+  function esc(s) { return s.replace(/"/g, '&quot;'); }
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  </script>
+</body>
+</html>

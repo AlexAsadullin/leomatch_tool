@@ -19,7 +19,7 @@ def _is_limit_message(text: str) -> bool:
     return "Слишком много" in text and "за сегодня" in text
 
 from . import db, dedup, limits as acct_limits, tg
-from .config import AUTO_SKIP_PATH, DB_PATH, MEDIA_DIR, PENDING_DIR, PRIORITY_PATH
+from .config import ARCHIVE_DIR, AUTO_SKIP_PATH, DB_PATH, MEDIA_DIR, PENDING_DIR, PRIORITY_PATH
 from .hashing import hash_video_first_frame, sha256_file
 from .state import state
 
@@ -170,14 +170,35 @@ def _profile_payload(profile_id: int, description: str, files: list[Path], seen_
 
 
 def _purge_media(keep_pid: int | None) -> None:
-    """Delete every profile dir in MEDIA_DIR except the current one (and _pending)."""
+    """Delete every profile dir in MEDIA_DIR except the current one, _pending, and _archive."""
     if not MEDIA_DIR.exists():
         return
     keep = str(keep_pid) if keep_pid is not None else None
     for child in MEDIA_DIR.iterdir():
-        if child.name == PENDING_DIR.name or child.name == keep:
+        if child.name in (PENDING_DIR.name, ARCHIVE_DIR.name) or child.name == keep:
             continue
         shutil.rmtree(child, ignore_errors=True)
+
+
+def _archive_title_media(profile_id: int, downloaded: list[tuple]) -> None:
+    """Copy the first photo (or first video) to the permanent archive for the gallery."""
+    title: Path | None = None
+    for msg, path in downloaded:
+        if _is_photo(msg):
+            title = path
+            break
+    if title is None:
+        for msg, path in downloaded:
+            if _is_video(msg):
+                title = path
+                break
+    if title is None:
+        return
+    dest_dir = ARCHIVE_DIR / str(profile_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / title.name
+    if not dest.exists():
+        shutil.copy2(str(title), str(dest))
 
 
 def _publish_media(profile_id: int, downloaded: list[tuple[Message, Path]], temp_dir: Path) -> list[Path]:
@@ -370,6 +391,7 @@ async def _process(messages: list[Message]) -> None:
             dedup.register(profile_id, description, first_hash)
             stats.bump(active_phone, "new_profiles")
             seen_count = 1
+            _archive_title_media(profile_id, downloaded)
         else:
             profile_id = dup_id
             seen_count = db.bump_seen(profile_id)

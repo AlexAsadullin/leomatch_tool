@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Оценка анкет — leodv</title>
+  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <style>
+    body { padding-bottom: 0; }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      background: #fff;
+      border-bottom: 1px solid #e5e5ea;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .page-header h1 { margin: 0; font-size: 20px; flex: 1; }
+
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+      padding: 20px 16px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    .gallery-item {
+      background: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+    .gallery-item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.13);
+    }
+
+    .gallery-thumb {
+      width: 100%;
+      aspect-ratio: 3/4;
+      object-fit: cover;
+      display: block;
+      background: #e5e5ea;
+    }
+    .gallery-thumb-placeholder {
+      width: 100%;
+      aspect-ratio: 3/4;
+      background: #e5e5ea;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+    }
+
+    .gallery-info {
+      padding: 8px 10px 10px;
+    }
+    .gallery-name {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .gallery-rating {
+      font-size: 12px;
+      color: #8e8e93;
+      margin-top: 3px;
+    }
+    .gallery-rating.rated { color: #ff9500; font-weight: 600; }
+
+    #status { text-align: center; padding: 48px 16px; color: #6e6e73; font-size: 15px; }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <h1>Оценка анкет</h1>
+    <a href="/" class="mode-btn" style="text-decoration:none">← Главный экран</a>
+  </header>
+
+  <div id="status">Загрузка…</div>
+  <div id="grid" class="gallery-grid"></div>
+
+  <script>
+  (async () => {
+    const status = document.getElementById('status');
+    const grid = document.getElementById('grid');
+
+    let profiles;
+    try {
+      profiles = await fetch('/api/gallery').then(r => r.json());
+    } catch (e) {
+      status.textContent = 'Ошибка загрузки';
+      return;
+    }
+
+    if (!profiles.length) {
+      status.textContent = 'Анкет в базе ещё нет.';
+      return;
+    }
+    status.style.display = 'none';
+
+    for (const p of profiles) {
+      const a = document.createElement('a');
+      a.href = `/rating?id=${p.id}`;
+      a.className = 'gallery-item';
+
+      const thumb = p.thumb_url
+        ? `<img class="gallery-thumb" src="${esc(p.thumb_url)}" loading="lazy" alt="" />`
+        : `<div class="gallery-thumb-placeholder">👤</div>`;
+
+      const firstName = p.description.split(/[\n,]/)[0].trim().slice(0, 28);
+      const ratingEl = p.rating === -1
+        ? `<div class="gallery-rating">не оценена</div>`
+        : `<div class="gallery-rating rated">★ ${p.rating}/10</div>`;
+
+      a.innerHTML = `${thumb}<div class="gallery-info"><div class="gallery-name">${escHtml(firstName)}</div>${ratingEl}</div>`;
+      grid.appendChild(a);
+    }
+  })();
+
+  function esc(s) { return s.replace(/"/g, '&quot;'); }
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  </script>
+</body>
+</html>

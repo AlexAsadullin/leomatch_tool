@@ -207,6 +207,71 @@ async def toggle_auto_rotate():
         return state.snapshot()
 
 
+@app.get("/gallery")
+async def gallery_page():
+    return FileResponse(str(STATIC_DIR / "gallery.html"))
+
+
+@app.get("/rating")
+async def rating_page():
+    return FileResponse(str(STATIC_DIR / "rating.html"))
+
+
+def _thumb_url(profile_id: int) -> str | None:
+    archive_dir = MEDIA_DIR / "_archive" / str(profile_id)
+    if not archive_dir.exists():
+        return None
+    for f in sorted(archive_dir.iterdir()):
+        if f.is_file():
+            return f"/media/_archive/{profile_id}/{f.name}"
+    return None
+
+
+@app.get("/api/gallery")
+async def api_gallery():
+    profiles = db.get_all_profiles()
+    return [
+        {
+            "id": p["id"],
+            "description": p["description"],
+            "rating": p["rating"],
+            "seen_count": p["seen_count"],
+            "registered_at": p["registered_at"],
+            "thumb_url": _thumb_url(p["id"]),
+        }
+        for p in profiles
+    ]
+
+
+@app.get("/api/ratings/{profile_id}")
+async def api_get_profile(profile_id: int):
+    p = db.get_profile(profile_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {
+        "id": p["id"],
+        "description": p["description"],
+        "rating": p["rating"],
+        "seen_count": p["seen_count"],
+        "registered_at": p["registered_at"],
+        "thumb_url": _thumb_url(p["id"]),
+    }
+
+
+class RatingPayload(BaseModel):
+    rating: int
+
+
+@app.post("/api/ratings/{profile_id}/rate")
+async def api_set_rating(profile_id: int, payload: RatingPayload):
+    if not (1 <= payload.rating <= 10):
+        raise HTTPException(status_code=400, detail="Rating must be 1–10")
+    if db.get_profile(profile_id) is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    db.set_rating(profile_id, payload.rating)
+    return {"ok": True}
+
+
 class AgeFilterPayload(BaseModel):
     min: int | None = None
     max: int | None = None

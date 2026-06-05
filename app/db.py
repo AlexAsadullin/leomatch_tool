@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     first_seen_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     last_seen_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     registered_at    INTEGER NOT NULL DEFAULT 0,
+    rating           INTEGER NOT NULL DEFAULT -1,
     UNIQUE(description, first_media_hash)
 );
 """
@@ -38,6 +39,8 @@ def init() -> None:
             c.execute("UPDATE profiles SET registered_at = ?", (_BACKFILL_TS,))
         else:
             c.execute("UPDATE profiles SET registered_at = ? WHERE registered_at = 0", (_BACKFILL_TS,))
+        if "rating" not in cols:
+            c.execute("ALTER TABLE profiles ADD COLUMN rating INTEGER NOT NULL DEFAULT -1")
 
 
 def find_profile_by_description(description: str) -> Optional[sqlite3.Row]:
@@ -79,3 +82,20 @@ def bump_seen(profile_id: int) -> int:
         cur = c.execute("SELECT seen_count FROM profiles WHERE id = ?", (profile_id,))
         row = cur.fetchone()
         return int(row["seen_count"])
+
+
+def get_profile(profile_id: int) -> Optional[sqlite3.Row]:
+    with _conn() as c:
+        cur = c.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,))
+        return cur.fetchone()
+
+
+def get_all_profiles() -> list:
+    with _conn() as c:
+        cur = c.execute("SELECT * FROM profiles ORDER BY registered_at DESC")
+        return cur.fetchall()
+
+
+def set_rating(profile_id: int, rating: int) -> None:
+    with _conn() as c:
+        c.execute("UPDATE profiles SET rating = ? WHERE id = ?", (rating, profile_id))

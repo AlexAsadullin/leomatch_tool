@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import signal
 import shutil
 import time
 from pathlib import Path
@@ -16,8 +18,8 @@ def _is_limit_message(text: str) -> bool:
     # Match without emoji to avoid variation-selector encoding mismatches
     return "Слишком много" in text and "за сегодня" in text
 
-from . import db, dedup, tg
-from .config import DB_PATH, MEDIA_DIR, PENDING_DIR, PRIORITY_PATH
+from . import db, dedup, limits as acct_limits, tg
+from .config import AUTO_SKIP_PATH, DB_PATH, MEDIA_DIR, PENDING_DIR, PRIORITY_PATH
 from .hashing import hash_video_first_frame, sha256_file
 from .state import state
 
@@ -27,6 +29,14 @@ log = logging.getLogger("leodv.profile")
 def _is_priority_match(description: str) -> bool:
     try:
         entries = json.loads(PRIORITY_PATH.read_text())
+        return any(entry in description for entry in entries)
+    except Exception:
+        return False
+
+
+def _is_auto_skip(description: str) -> bool:
+    try:
+        entries = json.loads(AUTO_SKIP_PATH.read_text())
         return any(entry in description for entry in entries)
     except Exception:
         return False
@@ -56,6 +66,20 @@ async def _deferred_letter(text: str) -> None:
             state.status_message = ""
 
 
+async def _deferred_shutdown(msg: str) -> None:
+    """Notify the bot and then send SIGINT to the process."""
+    log.warning("Shutting down — all accounts limited")
+    try:
+        from tg_bot.bot import get_bot
+        bot = get_bot()
+        if bot:
+            await bot.notify_shutdown(msg)
+            await asyncio.sleep(1.5)
+    except Exception:
+        log.exception("Shutdown notification failed")
+    os.kill(os.getpid(), signal.SIGINT)
+
+
 async def _deferred_rotate() -> None:
     """Rotation runs as separate task to avoid CancelledError when disconnecting from inside event handler."""
     async with state.lock:
@@ -77,8 +101,10 @@ async def _deferred_rotate() -> None:
             backup = DB_PATH.with_name("data_backup.db")
             shutil.copy2(DB_PATH, backup)
             log.info("DB backed up to %s", backup)
-            state.status_message = "Лимиты на всех аккаунтах исчерпаны — авто-скроллинг окончен до завтра"
+            msg = "⛔️ Лимиты на всех аккаунтах — останавливаю программу"
+            state.status_message = msg
             state.warning = False
+            asyncio.create_task(_deferred_shutdown(msg))
         except Exception:
             log.exception("Deferred rotation failed unexpectedly")
             state.status_message = ""
@@ -267,11 +293,24 @@ async def _process(messages: list[Message]) -> None:
         state.current_profile = None
         state.priority_alert = False
         state.letter_pending = False
+
+        current_phone = tg._phones[tg._current_idx] if tg._phones else ""
+        if current_phone:
+            acct_limits.mark_limit(current_phone)
+
+        if acct_limits.all_limited(tg._phones):
+            log.warning("All accounts are limited — shutting down")
+            msg = "⛔️ Лимиты на всех аккаунтах — останавливаю программу"
+            state.status_message = msg
+            state.warning = False
+            asyncio.create_task(_deferred_shutdown(msg))
+            return
+
         if state.auto_rotate_mode:
             log.info("Limit hit — auto-rotating (re-using manual switch endpoint)")
             state.status_message = "Лимит — авто-смена аккаунта…"
             state.warning = False
-            old_phone = tg._phones[tg._current_idx] if tg._phones else "?"
+            old_phone = current_phone or "?"
             old_idx = tg._current_idx
             asyncio.create_task(_deferred_rotate())
             try:
@@ -345,6 +384,14 @@ async def _process(messages: list[Message]) -> None:
             state.status_message = ""
             return
 
+        if _is_auto_skip(description):
+            log.info("Auto-skip match: profile id=%s desc=%r", profile_id, description[:60])
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            await tg.send_reaction("👎")
+            state.current_profile = None
+            state.warning = False
+            return
+
         reason = _auto_dislike_reason(description, seen_count)
         if reason is not None:
             log.info("Auto-disliking profile id=%s seen=%s reason=%s", profile_id, seen_count, reason)
@@ -361,16 +408,21 @@ async def _process(messages: list[Message]) -> None:
 
         if state.auto_like_mode:
             log.info("Auto-liking profile id=%s seen=%s", profile_id, seen_count)
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            files = _publish_media(profile_id, downloaded, temp_dir)
             await tg.send_reaction("❤️")
             state.like_count += 1
             stats.bump(active_phone, "auto_likes")
             state.current_profile = None
             state.warning = False
             settings.save()
-            await _notify_bot_status(
-                f"❤️ Авто-лайк · id={profile_id} · {description[:50]}"
-            )
+            profile_payload = _profile_payload(profile_id, description, files, seen_count)
+            try:
+                from tg_bot.bot import get_bot
+                bot = get_bot()
+                if bot:
+                    asyncio.create_task(bot.notify_auto_like(profile_payload))
+            except Exception:
+                log.exception("notify auto like failed")
             return
 
         files = _publish_media(profile_id, downloaded, temp_dir)

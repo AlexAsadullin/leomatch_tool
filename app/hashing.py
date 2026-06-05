@@ -4,6 +4,8 @@ import hashlib
 import subprocess
 from pathlib import Path
 
+import imageio_ffmpeg
+
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -20,7 +22,7 @@ def sha256_file(path: Path) -> str:
 def hash_video_first_frame(video_path: Path) -> str:
     result = subprocess.run(
         [
-            "ffmpeg",
+            imageio_ffmpeg.get_ffmpeg_exe(),
             "-loglevel", "error",
             "-i", str(video_path),
             "-frames:v", "1",

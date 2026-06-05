@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import signal
 from pathlib import Path
 from typing import Optional
 
@@ -145,6 +147,7 @@ class TgBot:
             ],
             [_btn(_format_age())],
             [_btn("🔄 Переключить аккаунт"), _btn("ℹ️ Статус")],
+            [_btn("🛑 Стоп")],
         ]
 
     # ─── outbound helpers ───────────────────────────────────────────────
@@ -231,6 +234,40 @@ class TgBot:
         self._last_status = text
         await self._broadcast(text)
 
+    async def notify_auto_like(self, profile: dict) -> None:
+        """Send auto-liked profile photo + caption (no action buttons)."""
+        if not self._client:
+            return
+        pid = profile.get("id")
+        desc = profile.get("description") or "(без описания)"
+        seen = profile.get("seen_count", 1)
+        caption = f"❤️ Авто-лайк · id={pid} · встречалась {seen} раз\n\n{desc}"
+
+        media_paths: list[str] = []
+        for m in profile.get("media", []):
+            url = m.get("url", "")
+            local = ROOT / url.lstrip("/")
+            if local.exists():
+                media_paths.append(str(local))
+
+        kb = self._keyboard()
+        for uid in tuple(self.admin_ids):
+            try:
+                if len(media_paths) > 1:
+                    await self._client.send_file(uid, media_paths)
+                    await self._client.send_message(uid, caption, buttons=kb)
+                elif len(media_paths) == 1:
+                    await self._client.send_file(uid, media_paths[0], caption=caption, buttons=kb)
+                else:
+                    await self._client.send_message(uid, caption, buttons=kb)
+            except Exception:
+                log.exception("Failed to send auto-like profile to admin %s", uid)
+
+    async def notify_shutdown(self, text: str) -> None:
+        """Force-send a critical message, bypassing the dedup filter."""
+        self._last_status = ""
+        await self.notify_status(text)
+
     async def notify_keyboard(self) -> None:
         """Send a short message to refresh the displayed keyboard after a state change."""
         await self._broadcast("⌨️")
@@ -283,6 +320,8 @@ class TgBot:
             await self._send_to(uid, "✏️ Пришли диапазон в формате `18-25` или `off`.")
         elif text.startswith("🔄"):
             await self._switch_account()
+        elif text.startswith("🛑 Стоп"):
+            await self._stop_app()
         elif text.startswith("ℹ️ Статус"):
             await self._send_status_dump(uid)
         else:
@@ -358,6 +397,11 @@ class TgBot:
             state.auto_rotate_mode = not state.auto_rotate_mode
             settings.save()
         await self.notify_keyboard()
+
+    async def _stop_app(self) -> None:
+        await self._broadcast("🛑 Останавливаю программу…")
+        await asyncio.sleep(0.5)
+        os.kill(os.getpid(), signal.SIGINT)
 
     async def notify_rotate_start(self, old_phone: str, old_idx: int) -> None:
         """Send rotation-start message and watch for result (called from auto-rotate)."""

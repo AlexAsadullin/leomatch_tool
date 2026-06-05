@@ -129,21 +129,25 @@ async def start(phones: list[str]) -> None:
 
 async def rotate_account() -> bool:
     global _current_idx
+    from . import limits as acct_limits
     start_idx = _current_idx
     log.info("Rotating from account index=%s", start_idx)
     await _disconnect_current()
     candidate = (_current_idx + 1) % len(_clients)
     while candidate != start_idx:
-        sf = Path(str(session_path(_phones[candidate])) + ".session")
-        if sf.exists():
+        phone = _phones[candidate]
+        sf = Path(str(session_path(phone)) + ".session")
+        if not sf.exists():
+            log.warning("No session file for index=%s, skipping", candidate)
+        elif acct_limits.is_limited(phone):
+            log.info("Account index=%s phone=%s is limited, skipping", candidate, phone)
+        else:
             try:
                 await _connect_and_register(candidate)
                 _current_idx = candidate
                 return True
             except Exception:
                 log.exception("Account index=%s failed, trying next", candidate)
-        else:
-            log.warning("No session file for index=%s, skipping", candidate)
         candidate = (candidate + 1) % len(_clients)
     log.error("All %s accounts exhausted", len(_clients))
     return False

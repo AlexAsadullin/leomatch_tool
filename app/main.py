@@ -11,8 +11,8 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, dedup, settings, stats, tg
-from .config import DB_PATH, MEDIA_DIR, PHONES, STATIC_DIR, TG_BOT_TOKEN
+from . import db, dedup, limits as acct_limits, settings, stats, tg
+from .config import DB_PATH, LIMITS_PATH, MEDIA_DIR, PHONES, STATIC_DIR, TG_BOT_TOKEN
 from .profile import handle_messages, _deferred_rotate, _deferred_letter
 from .state import state
 
@@ -52,6 +52,7 @@ async def _watchdog() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init()
+    acct_limits.init(LIMITS_PATH)   # ← сбрасываем устаревшие лимиты (>8ч), загружаем актуальные
     settings.load()    # ← восстанавливаем сохранённые режимы/фильтры/счётчики
     stats.load_and_maybe_reset()   # ← per-account stats; сброс лениво на 05:00
     dedup.init_indexes()

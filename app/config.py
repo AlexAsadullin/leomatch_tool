@@ -41,8 +41,11 @@ MEDIA_DIR = ROOT / "media"
 PENDING_DIR = MEDIA_DIR / "_pending"
 STATIC_DIR = ROOT / "static"
 PRIORITY_PATH = APP_DIR / "highest_priority.json"
+AUTO_SKIP_PATH = APP_DIR / "auto_skip.json"
 
 MEDIA_DIR.mkdir(exist_ok=True)
 PENDING_DIR.mkdir(exist_ok=True)
 if not PRIORITY_PATH.exists():
     PRIORITY_PATH.write_text("[]")
+if not AUTO_SKIP_PATH.exists():
+    AUTO_SKIP_PATH.write_text("[]")

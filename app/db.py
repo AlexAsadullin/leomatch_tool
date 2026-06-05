@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from typing import Optional
 
 from .config import DB_PATH
@@ -13,9 +14,13 @@ CREATE TABLE IF NOT EXISTS profiles (
     seen_count       INTEGER NOT NULL DEFAULT 1,
     first_seen_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     last_seen_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    registered_at    INTEGER NOT NULL DEFAULT 0,
     UNIQUE(description, first_media_hash)
 );
 """
+
+# 2026-06-04 00:01:00 UTC — проставляется существующим анкетам при миграции
+_BACKFILL_TS = 1780531260
 
 
 def _conn() -> sqlite3.Connection:
@@ -27,6 +32,12 @@ def _conn() -> sqlite3.Connection:
 def init() -> None:
     with _conn() as c:
         c.executescript(_SCHEMA)
+        cols = {row[1] for row in c.execute("PRAGMA table_info(profiles)")}
+        if "registered_at" not in cols:
+            c.execute("ALTER TABLE profiles ADD COLUMN registered_at INTEGER NOT NULL DEFAULT 0")
+            c.execute("UPDATE profiles SET registered_at = ?", (_BACKFILL_TS,))
+        else:
+            c.execute("UPDATE profiles SET registered_at = ? WHERE registered_at = 0", (_BACKFILL_TS,))
 
 
 def find_profile_by_description(description: str) -> Optional[sqlite3.Row]:
@@ -47,8 +58,8 @@ def find_profile(description: str, media_hash: str) -> Optional[sqlite3.Row]:
 def insert_profile(description: str, media_hash: str) -> int:
     with _conn() as c:
         cur = c.execute(
-            "INSERT INTO profiles(description, first_media_hash) VALUES (?, ?)",
-            (description, media_hash),
+            "INSERT INTO profiles(description, first_media_hash, registered_at) VALUES (?, ?, ?)",
+            (description, media_hash, int(time.time())),
         )
         return int(cur.lastrowid)
 

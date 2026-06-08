@@ -284,8 +284,17 @@ class TgBot:
             except Exception:
                 log.exception("Failed to send auto-like profile to admin %s", uid)
 
+    async def notify_status_dump(self) -> None:
+        """Send the full stats dump to all admins (used before shutdown)."""
+        for uid in tuple(self.admin_ids):
+            try:
+                await self._send_status_dump(uid)
+            except Exception:
+                log.exception("Failed to send status dump to admin %s", uid)
+
     async def notify_shutdown(self, text: str) -> None:
         """Force-send a critical message, bypassing the dedup filter."""
+        await self.notify_status_dump()
         self._last_status = ""
         await self.notify_status(text)
 

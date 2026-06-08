@@ -116,6 +116,11 @@ def summary() -> dict[str, Any]:
     }
 
 
+def get_field(phone: str, field: str) -> int:
+    """Текущее значение поля для аккаунта (0 если не найдено)."""
+    return _data.get("per_account", {}).get(phone, {}).get(field, 0)
+
+
 def current_account_field(account_getter, field: str, delta: int = 1) -> None:
     """Удобный wrapper: bump'нуть текущий аккаунт через ленивый геттер."""
     try:

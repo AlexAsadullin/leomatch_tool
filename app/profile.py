@@ -13,6 +13,9 @@ from telethon.tl.custom import Message
 
 LONG_DESC_THRESHOLD = 60
 
+AUTO_DISLIKE_SOFT_LIMIT = 1400
+AUTO_LIKE_SOFT_LIMIT = 30
+
 
 def _is_limit_message(text: str) -> bool:
     # Match without emoji to avoid variation-selector encoding mismatches
@@ -109,6 +112,47 @@ async def _deferred_rotate() -> None:
             log.exception("Deferred rotation failed unexpectedly")
             state.status_message = ""
             state.warning = True
+
+
+def _soft_limit_hit(phone: str) -> bool:
+    from . import stats
+    return (
+        stats.get_field(phone, "auto_dislikes") >= AUTO_DISLIKE_SOFT_LIMIT
+        or stats.get_field(phone, "auto_likes") >= AUTO_LIKE_SOFT_LIMIT
+    )
+
+
+def _trigger_soft_limit(phone: str) -> None:
+    from . import stats
+    d = stats.get_field(phone, "auto_dislikes")
+    lk = stats.get_field(phone, "auto_likes")
+    log.info("Soft limit reached for %s (auto_dislikes=%s, auto_likes=%s)", phone, d, lk)
+    acct_limits.mark_limit(phone)
+
+    if acct_limits.all_limited(tg._phones):
+        log.warning("All accounts soft-limited — shutting down")
+        msg = "⛔️ Лимиты на всех аккаунтах — останавливаю программу"
+        state.status_message = msg
+        state.warning = False
+        asyncio.create_task(_deferred_shutdown(msg))
+        return
+
+    if state.auto_rotate_mode:
+        log.info("Soft limit — auto-rotating account")
+        state.status_message = "Лимит авто-действий — авто-смена аккаунта…"
+        state.warning = False
+        old_idx = tg._current_idx
+        asyncio.create_task(_deferred_rotate())
+        try:
+            from tg_bot.bot import get_bot
+            bot = get_bot()
+            if bot:
+                asyncio.create_task(bot.notify_rotate_start(phone, old_idx))
+        except Exception:
+            log.exception("notify rotate start failed")
+    else:
+        state.status_message = "Лимит авто-действий — смените аккаунт вручную"
+        state.warning = True
 
 
 async def _notify_bot_status(text: str) -> None:
@@ -414,8 +458,8 @@ async def _process(messages: list[Message]) -> None:
             state.current_profile = None
             state.warning = False
             settings.save()
-            # сообщения в чат не шлём — авто-дизлайк бьёт пачками,
-            # счётчики видно в "ℹ️ Статус"
+            if active_phone and _soft_limit_hit(active_phone):
+                _trigger_soft_limit(active_phone)
             return
 
         if state.auto_like_mode:
@@ -435,6 +479,8 @@ async def _process(messages: list[Message]) -> None:
                     asyncio.create_task(bot.notify_auto_like(profile_payload))
             except Exception:
                 log.exception("notify auto like failed")
+            if active_phone and _soft_limit_hit(active_phone):
+                _trigger_soft_limit(active_phone)
             return
 
         files = _publish_media(profile_id, downloaded, temp_dir)

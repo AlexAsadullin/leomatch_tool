@@ -64,12 +64,13 @@ from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, StoryItem
 
 # ─── разбор ссылки ────────────────────────────────────────────────────────────
 
-def parse_link(link: str) -> str:
-    """Извлечь username из ссылки вида https://t.me/username/s/16"""
+def parse_link(link: str) -> tuple[str, int | None]:
+    """Извлечь username и ID стори из ссылки вида https://t.me/username/s/16"""
     link = link.strip()
-    m = re.search(r't\.me/([A-Za-z0-9_]+)(?:/s/\d+)?', link)
+    m = re.search(r't\.me/([A-Za-z0-9_]+)(?:/s/(\d+))?', link)
     if m:
-        return m.group(1)
+        story_id = int(m.group(2)) if m.group(2) else None
+        return m.group(1), story_id
     sys.exit(f"Не удалось разобрать ссылку: {link!r}\nФормат: https://t.me/username/s/16")
 
 # ─── расширение файла ─────────────────────────────────────────────────────────
@@ -99,7 +100,9 @@ def _ext(story: StoryItem) -> str:
 
 # ─── получение всех сторисов ─────────────────────────────────────────────────
 
-async def fetch_all_stories(client: TelegramClient, entity) -> list[StoryItem]:
+async def fetch_all_stories(
+    client: TelegramClient, entity, hint_max_id: int | None = None,
+) -> list[StoryItem]:
     stories: dict[int, StoryItem] = {}
 
     # Активные (закреплённые / ещё не истёкшие)
@@ -127,7 +130,7 @@ async def fetch_all_stories(client: TelegramClient, entity) -> list[StoryItem]:
     except Exception:
         pass
 
-    # Архив (работает для каналов, не для пользователей)
+    # Архив через GetStoriesArchiveRequest (работает для каналов и своего аккаунта)
     offset_id = 0
     archive_count = 0
     while True:
@@ -149,7 +152,29 @@ async def fetch_all_stories(client: TelegramClient, entity) -> list[StoryItem]:
             break  # не поддерживается для этого типа peer
 
     if archive_count:
-        print(f"  Из архива: {archive_count}")
+        print(f"  Из архива (archive API): {archive_count}")
+
+    # Сканирование по ID — надёжный фолбэк для чужих аккаунтов/каналов
+    max_id = max((s.id for s in stories.values()), default=0)
+    if hint_max_id:
+        max_id = max(max_id, hint_max_id)
+
+    if max_id > 0:
+        scan_ids = [i for i in range(1, max_id + 1) if i not in stories]
+        scan_found = 0
+        for i in range(0, len(scan_ids), 100):
+            chunk = scan_ids[i:i + 100]
+            try:
+                r = await client(GetStoriesByIDRequest(peer=entity, id=chunk))
+                for s in (r.stories if hasattr(r, "stories") else []):
+                    if isinstance(s, StoryItem) and s.id not in stories:
+                        stories[s.id] = s
+                        scan_found += 1
+            except Exception:
+                pass
+        if scan_found:
+            print(f"  Из сканирования по ID (1–{max_id}): {scan_found}")
+
     print(f"  Итого уникальных: {len(stories)}")
     return sorted(stories.values(), key=lambda s: s.id)
 
@@ -198,7 +223,7 @@ async def main() -> None:
                  f"  Скрипт принимает только одну ссылку:\n"
                  f"  python3 scripts/download_tg_media.py <ссылка> [папка]")
     out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else SCRIPT_DIR / "downloads"
-    username = parse_link(link)
+    username, hint_max_id = parse_link(link)
 
     print(f"Канал    : @{username}")
     print(f"Папка    : {out_dir}")
@@ -225,7 +250,7 @@ async def main() -> None:
             title = getattr(entity, "title", None) or getattr(entity, "username", None)
             print(f"  Доступ есть! «{title}»")
 
-            all_stories = await fetch_all_stories(client, entity)
+            all_stories = await fetch_all_stories(client, entity, hint_max_id=hint_max_id)
             if not all_stories:
                 print("  Сторисов не найдено.")
                 await client.disconnect()

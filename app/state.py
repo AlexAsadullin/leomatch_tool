@@ -14,6 +14,8 @@ class AppState:
     auto_dislike_mode: bool = False
     auto_like_mode: bool = False
     auto_rotate_mode: bool = False
+    auto_dislike_soft_limit: int = 1400
+    auto_like_soft_limit: int = 30
     auto_dislike_count: int = 0
     like_count: int = 0
     dislike_count: int = 0
@@ -40,6 +42,8 @@ class AppState:
             "auto_dislike_mode": self.auto_dislike_mode,
             "auto_like_mode": self.auto_like_mode,
             "auto_rotate_mode": self.auto_rotate_mode,
+            "auto_dislike_soft_limit": self.auto_dislike_soft_limit,
+            "auto_like_soft_limit": self.auto_like_soft_limit,
             "auto_dislike_count": self.auto_dislike_count,
             "like_count": self.like_count,
             "dislike_count": self.dislike_count,

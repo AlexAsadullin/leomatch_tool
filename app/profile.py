@@ -13,9 +13,6 @@ from telethon.tl.custom import Message
 
 LONG_DESC_THRESHOLD = 60
 
-AUTO_DISLIKE_SOFT_LIMIT = 1400
-AUTO_LIKE_SOFT_LIMIT = 30
-
 
 def _is_limit_message(text: str) -> bool:
     # Match without emoji to avoid variation-selector encoding mismatches
@@ -151,8 +148,8 @@ async def _deferred_rotate() -> None:
 def _soft_limit_hit(phone: str) -> bool:
     from . import stats
     return (
-        stats.get_field(phone, "auto_dislikes") >= AUTO_DISLIKE_SOFT_LIMIT
-        or stats.get_field(phone, "auto_likes") >= AUTO_LIKE_SOFT_LIMIT
+        stats.get_field(phone, "auto_dislikes") >= state.auto_dislike_soft_limit
+        or stats.get_field(phone, "auto_likes") >= state.auto_like_soft_limit
     )
 
 

@@ -226,5 +226,9 @@ async def stop() -> None:
 
 async def download_media(message: Message, dest_dir: Path) -> Optional[Path]:
     dest_dir.mkdir(parents=True, exist_ok=True)
-    path = await message.download_media(file=str(dest_dir) + "/")
-    return Path(path) if path else None
+    try:
+        path = await message.download_media(file=str(dest_dir) + "/")
+        return Path(path) if path else None
+    except Exception:
+        log.warning("download_media failed for message id=%s — skipping", message.id, exc_info=True)
+        return None

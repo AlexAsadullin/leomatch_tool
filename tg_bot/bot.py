@@ -149,7 +149,11 @@ class TgBot:
         return [
             [
                 _btn(f"Авто-лайк: {_on_off(state.auto_like_mode)}"),
+                _btn(f"Лимит авто-лайков: {state.auto_like_soft_limit}"),
+            ],
+            [
                 _btn(f"Авто-дизлайк: {_on_off(state.auto_dislike_mode)}"),
+                _btn(f"Лимит авто-дизлайков: {state.auto_dislike_soft_limit}"),
             ],
             [
                 _btn(f"Только новые: {_on_off(state.only_new_mode)}"),
@@ -330,6 +334,12 @@ class TgBot:
         if pending == "await_letter":
             await self._send_letter(text)
             return
+        if pending == "await_like_limit":
+            await self._handle_like_limit_input(uid, text)
+            return
+        if pending == "await_dislike_limit":
+            await self._handle_dislike_limit_input(uid, text)
+            return
 
         # — bare commands —
         if text in ("/start", "/help"):
@@ -339,8 +349,14 @@ class TgBot:
         # — button presses (match by prefix because labels include state) —
         if text.startswith("Авто-лайк"):
             await self._toggle_auto_like()
+        elif text.startswith("Лимит авто-лайков"):
+            self._pending_input[uid] = "await_like_limit"
+            await self._send_to(uid, f"✏️ Текущий лимит авто-лайков: {state.auto_like_soft_limit}\nПришли новое число (например `30`).")
         elif text.startswith("Авто-дизлайк"):
             await self._toggle_auto_dislike()
+        elif text.startswith("Лимит авто-дизлайков"):
+            self._pending_input[uid] = "await_dislike_limit"
+            await self._send_to(uid, f"✏️ Текущий лимит авто-дизлайков: {state.auto_dislike_soft_limit}\nПришли новое число (например `1400`).")
         elif text.startswith("Только новые"):
             await self._toggle_only_new()
         elif text.startswith("Авто-смена акков"):
@@ -505,6 +521,36 @@ class TgBot:
             settings.save()
         await self.notify_keyboard()
 
+    async def _handle_like_limit_input(self, uid: int, text: str) -> None:
+        from app import settings
+        try:
+            val = int(text.strip())
+            if val <= 0:
+                raise ValueError
+        except ValueError:
+            await self._send_to(uid, "Нужно целое положительное число. Попробуй ещё раз.")
+            self._pending_input[uid] = "await_like_limit"
+            return
+        async with state.lock:
+            state.auto_like_soft_limit = val
+            settings.save()
+        await self.notify_keyboard()
+
+    async def _handle_dislike_limit_input(self, uid: int, text: str) -> None:
+        from app import settings
+        try:
+            val = int(text.strip())
+            if val <= 0:
+                raise ValueError
+        except ValueError:
+            await self._send_to(uid, "Нужно целое положительное число. Попробуй ещё раз.")
+            self._pending_input[uid] = "await_dislike_limit"
+            return
+        async with state.lock:
+            state.auto_dislike_soft_limit = val
+            settings.save()
+        await self.notify_keyboard()
+
     # ─── inline-button callback ─────────────────────────────────────────
 
     async def _on_callback(self, event: events.CallbackQuery.Event) -> None:
@@ -570,8 +616,8 @@ class TgBot:
         head = (
             f"📊 Статус\n"
             f"Аккаунт: {active}\n"
-            f"Авто-лайк: {_on_off(state.auto_like_mode)}\n"
-            f"Авто-дизлайк: {_on_off(state.auto_dislike_mode)}\n"
+            f"Авто-лайк: {_on_off(state.auto_like_mode)} (лимит: {state.auto_like_soft_limit})\n"
+            f"Авто-дизлайк: {_on_off(state.auto_dislike_mode)} (лимит: {state.auto_dislike_soft_limit})\n"
             f"Только новые: {_on_off(state.only_new_mode)}\n"
             f"Авто-смена акков: {_on_off(state.auto_rotate_mode)}\n"
             f"{_format_age()}\n"

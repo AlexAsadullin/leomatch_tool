@@ -26,6 +26,8 @@ _PERSISTENT_FIELDS = (
     "auto_dislike_mode",
     "auto_like_mode",
     "auto_rotate_mode",
+    "auto_dislike_soft_limit",
+    "auto_like_soft_limit",
     "age_min",
     "age_max",
     "auto_dislike_count",

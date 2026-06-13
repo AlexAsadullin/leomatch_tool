@@ -89,6 +89,15 @@ async def _disconnect_current() -> None:
     _album_buffers.clear()
 
 
+def _msg_has_media(m: Message) -> bool:
+    return (
+        m.photo is not None
+        or m.video is not None
+        or getattr(m, "video_note", None) is not None
+        or getattr(m, "gif", None) is not None
+    )
+
+
 async def fetch_latest_unit() -> list[Message]:
     msgs: list[Message] = []
     async for m in active_client().iter_messages(BOT_USERNAME, limit=20):
@@ -125,6 +134,56 @@ async def start(phones: list[str]) -> None:
     raise RuntimeError(
         "No working account found. Run `python3 login.py` to authorize all accounts."
     )
+
+
+async def find_and_rotate_to_profile_account() -> bool:
+    """Iterate non-current accounts, check if the latest bot message is a profile.
+    Rotates to the first account that has one. Returns True if rotated."""
+    global _current_idx
+    start_idx = _current_idx
+    for offset in range(1, len(_clients)):
+        idx = (start_idx + offset) % len(_clients)
+        phone = _phones[idx]
+        sf = Path(str(session_path(phone)) + ".session")
+        if not sf.exists():
+            log.warning("No session file for index=%s, skipping", idx)
+            continue
+        c = _clients[idx]
+        has_profile = False
+        try:
+            await c.connect()
+            if not await c.is_user_authorized():
+                log.info("Account index=%s not authorized, skipping", idx)
+                await c.disconnect()
+                continue
+            msgs: list[Message] = []
+            async for m in c.iter_messages(BOT_USERNAME, limit=20):
+                msgs.append(m)
+            if msgs:
+                head = msgs[0]
+                unit = [m for m in msgs if m.grouped_id == head.grouped_id] if head.grouped_id else [head]
+                has_profile = any(_msg_has_media(m) for m in unit)
+                log.info("Account index=%s: latest unit has_profile=%s", idx, has_profile)
+            else:
+                log.info("Account index=%s: no messages from bot", idx)
+            await c.disconnect()
+        except Exception:
+            log.exception("Error checking account index=%s for profile", idx)
+            try:
+                await c.disconnect()
+            except Exception:
+                pass
+            continue
+        if has_profile:
+            log.info("Account index=%s has a profile — rotating to it", idx)
+            await _disconnect_current()
+            try:
+                await _connect_and_register(idx)
+                _current_idx = idx
+                return True
+            except Exception:
+                log.exception("Failed to connect account index=%s after check", idx)
+    return False
 
 
 async def rotate_account() -> bool:

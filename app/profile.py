@@ -83,6 +83,40 @@ async def _deferred_shutdown(msg: str) -> None:
     os.kill(os.getpid(), signal.SIGINT)
 
 
+async def _deferred_rotate_on_non_profile() -> None:
+    """Check all other accounts for an available profile; rotate to the first that has one."""
+    async with state.lock:
+        try:
+            log.info("=== Checking other accounts for available profile (non-profile trigger) ===")
+            rotated = await tg.find_and_rotate_to_profile_account()
+            if rotated:
+                state.active_account_idx = tg.current_idx()
+                new_phone = tg._phones[tg.current_idx()]
+                log.info("Rotated to account index=%s phone=%s", tg.current_idx(), new_phone)
+                state.status_message = ""
+                state.warning = False
+                try:
+                    await tg.send_reaction("1")
+                    log.info("Sent kickoff '1' to bot on phone=%s", new_phone)
+                except Exception:
+                    log.exception("Kickoff send failed on phone=%s", new_phone)
+                return
+            log.warning("No account has a profile available — waiting for user action")
+            state.status_message = "Нет анкет ни на одном аккаунте — жду действий пользователя"
+            state.warning = True
+            try:
+                from tg_bot.bot import get_bot
+                bot = get_bot()
+                if bot:
+                    asyncio.create_task(bot.notify_status(state.status_message))
+            except Exception:
+                log.exception("notify failed after non-profile rotation check")
+        except Exception:
+            log.exception("Non-profile account rotation failed")
+            state.warning = True
+            state.status_message = ""
+
+
 async def _deferred_rotate() -> None:
     """Rotation runs as separate task to avoid CancelledError when disconnecting from inside event handler."""
     async with state.lock:
@@ -388,9 +422,14 @@ async def _process(messages: list[Message]) -> None:
         if state.letter_pending:
             log.info("Non-profile during letter flow — ignoring, waiting for profiles")
             return
-        log.info("Bot sent a non-profile message; raising warning")
+        log.info("Bot sent a non-profile message")
         state.current_profile = None
-        state.warning = True
+        if state.auto_rotate_mode and len(tg._phones) > 1:
+            state.status_message = "Не-анкета — проверяю другие аккаунты…"
+            state.warning = False
+            asyncio.create_task(_deferred_rotate_on_non_profile())
+        else:
+            state.warning = True
         return
 
     description = _extract_text(messages)

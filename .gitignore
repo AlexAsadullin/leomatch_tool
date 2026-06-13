@@ -11,3 +11,6 @@ app_settings.json
 app_stats.json
 app_settings.json
 app_stats.json
+account_limits.json
+app/auto_skip.json
+app/highest_priority.json

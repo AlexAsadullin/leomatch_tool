@@ -399,6 +399,8 @@ class TgBot:
                 state.busy = False
             settings.save()
             self._last_profile_id = None
+        if tg.secondary_idx() is not None:
+            asyncio.create_task(tg.stop_secondary())
         await self._broadcast(f"✅ Отправлено: {emoji}")
 
     async def _send_letter(self, text: str) -> None:

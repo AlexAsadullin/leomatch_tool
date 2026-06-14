@@ -3,8 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-import signal
 import shutil
 import time
 from pathlib import Path
@@ -29,7 +27,7 @@ log = logging.getLogger("leodv.profile")
 def _is_priority_match(description: str) -> bool:
     try:
         entries = json.loads(PRIORITY_PATH.read_text())
-        return any(entry in description for entry in entries)
+        return any(entry.lower() in description.lower() for entry in entries)
     except Exception:
         return False
 
@@ -37,7 +35,7 @@ def _is_priority_match(description: str) -> bool:
 def _is_auto_skip(description: str) -> bool:
     try:
         entries = json.loads(AUTO_SKIP_PATH.read_text())
-        return any(entry in description for entry in entries)
+        return any(entry.lower() in description.lower() for entry in entries)
     except Exception:
         return False
 
@@ -51,6 +49,8 @@ async def _deferred_letter(text: str) -> None:
         state.current_profile = None
         state.warning = False
         state.priority_alert = False
+    if tg.secondary_idx() is not None:
+        await tg.stop_secondary()
     try:
         await tg.send_reaction("💌 / 📹")
         await asyncio.sleep(1.5)
@@ -66,18 +66,16 @@ async def _deferred_letter(text: str) -> None:
             state.status_message = ""
 
 
-async def _deferred_shutdown(msg: str) -> None:
-    """Notify the bot and then send SIGINT to the process."""
-    log.warning("Shutting down — all accounts limited")
+async def _notify_all_limited(msg: str) -> None:
+    """Notify admins that all accounts hit their limits. App keeps running for gallery/ratings."""
+    log.warning("All accounts limited — app stays running for gallery and ratings")
     try:
         from tg_bot.bot import get_bot
         bot = get_bot()
         if bot:
             await bot.notify_shutdown(msg)
-            await asyncio.sleep(1.5)
     except Exception:
-        log.exception("Shutdown notification failed")
-    os.kill(os.getpid(), signal.SIGINT)
+        log.exception("All-limited notification failed")
 
 
 async def _deferred_rotate_on_non_profile() -> None:
@@ -131,14 +129,14 @@ async def _deferred_rotate() -> None:
                 except Exception:
                     log.exception("Kickoff send failed on phone=%s — waiting for bot to message us", new_phone)
                 return
-            log.warning("All accounts exhausted")
+            log.warning("All accounts exhausted — staying alive for gallery/ratings")
             backup = DB_PATH.with_name("data_backup.db")
             shutil.copy2(DB_PATH, backup)
             log.info("DB backed up to %s", backup)
-            msg = "⛔️ Лимиты на всех аккаунтах — останавливаю программу"
+            msg = "⛔️ Лимиты на всех аккаунтах — жду сброса. Галерея и оценки работают"
             state.status_message = msg
-            state.warning = False
-            asyncio.create_task(_deferred_shutdown(msg))
+            state.warning = True
+            asyncio.create_task(_notify_all_limited(msg))
         except Exception:
             log.exception("Deferred rotation failed unexpectedly")
             state.status_message = ""
@@ -161,11 +159,11 @@ def _trigger_soft_limit(phone: str) -> None:
     acct_limits.mark_limit(phone)
 
     if acct_limits.all_limited(tg._phones):
-        log.warning("All accounts soft-limited — shutting down")
-        msg = "⛔️ Лимиты на всех аккаунтах — останавливаю программу"
+        log.warning("All accounts soft-limited — staying alive for gallery/ratings")
+        msg = "⛔️ Лимиты на всех аккаунтах — жду сброса. Галерея и оценки работают"
         state.status_message = msg
-        state.warning = False
-        asyncio.create_task(_deferred_shutdown(msg))
+        state.warning = True
+        asyncio.create_task(_notify_all_limited(msg))
         return
 
     if state.auto_rotate_mode:
@@ -184,6 +182,133 @@ def _trigger_soft_limit(phone: str) -> None:
     else:
         state.status_message = "Лимит авто-действий — смените аккаунт вручную"
         state.warning = True
+
+
+async def _handle_secondary_messages(messages: list[Message]) -> None:
+    """Auto-process profiles on secondary account while primary holds a priority profile.
+    Never updates state.current_profile — UI stays on priority."""
+    if not messages:
+        return
+
+    from . import db, dedup, limits as acct_limits, settings, stats
+
+    sec_idx = tg.secondary_idx()
+    secondary_phone = tg._phones[sec_idx] if sec_idx is not None else ""
+
+    text = _extract_text(messages)
+
+    if _is_limit_message(text):
+        log.info("Secondary: limit hit on phone=%s", secondary_phone)
+        if secondary_phone:
+            acct_limits.mark_limit(secondary_phone)
+        await tg.stop_secondary()
+        return
+
+    has_media = any(_has_media(m) for m in messages)
+    if not has_media:
+        log.info("Secondary: non-profile message — stopping background processing")
+        await tg.stop_secondary()
+        return
+
+    description = _extract_text(messages)
+
+    if _is_auto_skip(description):
+        try:
+            await tg.secondary_send("👎")
+        except Exception:
+            log.exception("Secondary: failed to send auto-skip")
+        return
+
+    if _is_priority_match(description):
+        log.info("Secondary: priority match — stopping background processing")
+        await tg.stop_secondary()
+        return
+
+    head_id = messages[0].id
+    temp_dir = PENDING_DIR / f"sec_{head_id}"
+    try:
+        downloaded = await _download_unit(messages, temp_dir)
+        if not downloaded:
+            log.warning("Secondary: no downloadable media — skipping")
+            await tg.secondary_send("👎")
+            return
+
+        try:
+            first_hash, all_hashes = _compute_all_media_hashes(downloaded)
+        except RuntimeError as exc:
+            log.warning("Secondary: cannot hash media: %s", exc)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            await tg.secondary_send("👎")
+            return
+
+        dup_id = dedup.find_duplicate(description, all_hashes)
+        if dup_id is None:
+            profile_id = db.insert_profile(description, first_hash)
+            dedup.register(profile_id, description, first_hash)
+            stats.bump(secondary_phone, "new_profiles")
+            seen_count = 1
+        else:
+            profile_id = dup_id
+            seen_count = db.bump_seen(profile_id)
+
+        _archive_media(profile_id, downloaded)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+        reason = _auto_dislike_reason(description, seen_count)
+        if reason is not None:
+            await tg.secondary_send("👎")
+            stats.bump(secondary_phone, "auto_dislikes")
+            settings.save()
+            if secondary_phone and _soft_limit_hit(secondary_phone):
+                log.info("Secondary: soft limit on phone=%s — stopping", secondary_phone)
+                acct_limits.mark_limit(secondary_phone)
+                await tg.stop_secondary()
+            return
+
+        if state.auto_like_mode:
+            await tg.secondary_send("❤️")
+            stats.bump(secondary_phone, "auto_likes")
+            settings.save()
+            if secondary_phone and _soft_limit_hit(secondary_phone):
+                log.info("Secondary: soft limit on phone=%s — stopping", secondary_phone)
+                acct_limits.mark_limit(secondary_phone)
+                await tg.stop_secondary()
+            return
+
+        # No auto action configured — dislike to keep feed moving on secondary
+        await tg.secondary_send("👎")
+
+    except Exception:
+        log.exception("Secondary processing error for messages %s", [m.id for m in messages])
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+async def _start_secondary_processing() -> None:
+    """Find a non-limited account and start background auto-processing on it."""
+    await tg.stop_secondary()
+
+    from . import limits as acct_limits
+    primary_idx = tg.current_idx()
+
+    for offset in range(1, len(tg._phones)):
+        idx = (primary_idx + offset) % len(tg._clients)
+        if idx >= len(tg._phones):
+            continue
+        phone = tg._phones[idx]
+        if acct_limits.is_limited(phone):
+            log.info("Secondary candidate idx=%s limited, skipping", idx)
+            continue
+        started = await tg.start_secondary(idx, _handle_secondary_messages)
+        if started:
+            try:
+                await tg.secondary_send("1")
+                log.info("Secondary kicked off on idx=%s", idx)
+            except Exception:
+                log.exception("Failed to kick off secondary on idx=%s", idx)
+                await tg.stop_secondary()
+            return
+
+    log.info("No secondary account available for background processing")
 
 
 async def _notify_bot_status(text: str) -> None:
@@ -384,11 +509,11 @@ async def _process(messages: list[Message]) -> None:
             acct_limits.mark_limit(current_phone)
 
         if acct_limits.all_limited(tg._phones):
-            log.warning("All accounts are limited — shutting down")
-            msg = "⛔️ Лимиты на всех аккаунтах — останавливаю программу"
+            log.warning("All accounts are limited — staying alive for gallery/ratings")
+            msg = "⛔️ Лимиты на всех аккаунтах — жду сброса. Галерея и оценки работают"
             state.status_message = msg
-            state.warning = False
-            asyncio.create_task(_deferred_shutdown(msg))
+            state.warning = True
+            asyncio.create_task(_notify_all_limited(msg))
             return
 
         if state.auto_rotate_mode:
@@ -482,6 +607,7 @@ async def _process(messages: list[Message]) -> None:
             state.warning = False
             state.letter_pending = False
             state.status_message = ""
+            asyncio.create_task(_start_secondary_processing())
             return
 
         reason = _auto_dislike_reason(description, seen_count)

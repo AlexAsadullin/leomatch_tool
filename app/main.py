@@ -146,6 +146,8 @@ async def _react(text: str):
                 state.dislike_count += 1
                 stats.bump(active_phone, "dislikes")
         settings.save()
+    if tg.secondary_idx() is not None:
+        asyncio.create_task(tg.stop_secondary())
     return {"ok": True}
 
 

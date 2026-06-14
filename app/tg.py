@@ -23,6 +23,12 @@ _album_buffers: dict[int, list[Message]] = {}
 _album_tasks: dict[int, asyncio.Task] = {}
 _ALBUM_FLUSH_DELAY = 1.2
 
+# Secondary account — runs auto-processing in background while primary waits on priority profile
+_secondary_idx: int | None = None
+_secondary_on_messages: Optional[OnMessages] = None
+_secondary_album_buffers: dict[int, list[Message]] = {}
+_secondary_album_tasks: dict[int, asyncio.Task] = {}
+
 
 def active_client() -> TelegramClient:
     return _clients[_current_idx]
@@ -50,6 +56,36 @@ async def _flush_album(gid: int) -> None:
         _album_tasks.pop(gid, None)
     msgs.sort(key=lambda m: m.id)
     await _dispatch(msgs)
+
+
+async def _flush_secondary_album(gid: int) -> None:
+    try:
+        await asyncio.sleep(_ALBUM_FLUSH_DELAY)
+    finally:
+        msgs = _secondary_album_buffers.pop(gid, [])
+        _secondary_album_tasks.pop(gid, None)
+    msgs.sort(key=lambda m: m.id)
+    if _secondary_on_messages:
+        try:
+            await _secondary_on_messages(msgs)
+        except Exception:
+            log.exception("secondary on_messages handler failed")
+
+
+async def _secondary_event_handler(event) -> None:
+    if _secondary_on_messages is None:
+        return
+    msg: Message = event.message
+    if msg.grouped_id:
+        gid = msg.grouped_id
+        _secondary_album_buffers.setdefault(gid, []).append(msg)
+        if gid not in _secondary_album_tasks:
+            _secondary_album_tasks[gid] = asyncio.create_task(_flush_secondary_album(gid))
+    else:
+        try:
+            await _secondary_on_messages([msg])
+        except Exception:
+            log.exception("secondary on_messages handler failed")
 
 
 async def _event_handler(event) -> None:
@@ -134,6 +170,67 @@ async def start(phones: list[str]) -> None:
     raise RuntimeError(
         "No working account found. Run `python3 login.py` to authorize all accounts."
     )
+
+
+async def start_secondary(idx: int, handler: OnMessages) -> bool:
+    """Connect account at idx as secondary (event-driven, no rotation of primary)."""
+    global _secondary_idx, _secondary_on_messages
+    if idx == _current_idx:
+        return False
+    sf = Path(str(session_path(_phones[idx])) + ".session")
+    if not sf.exists():
+        log.warning("No session file for secondary idx=%s", idx)
+        return False
+    c = _clients[idx]
+    try:
+        await c.connect()
+        if not await c.is_user_authorized():
+            log.info("Secondary idx=%s not authorized", idx)
+            await c.disconnect()
+            return False
+        _secondary_on_messages = handler
+        c.add_event_handler(_secondary_event_handler, events.NewMessage(from_users=BOT_USERNAME, incoming=True))
+        _secondary_idx = idx
+        log.info("Secondary started idx=%s phone=%s", idx, _phones[idx])
+        return True
+    except Exception:
+        log.exception("Failed to start secondary idx=%s", idx)
+        try:
+            await c.disconnect()
+        except Exception:
+            pass
+        return False
+
+
+async def stop_secondary() -> None:
+    global _secondary_idx, _secondary_on_messages
+    if _secondary_idx is None:
+        return
+    idx = _secondary_idx
+    c = _clients[idx]
+    try:
+        c.remove_event_handler(_secondary_event_handler)
+        await c.disconnect()
+        log.info("Secondary stopped idx=%s", idx)
+    except Exception:
+        log.exception("Error stopping secondary idx=%s", idx)
+    finally:
+        _secondary_idx = None
+        _secondary_on_messages = None
+        for task in list(_secondary_album_tasks.values()):
+            task.cancel()
+        _secondary_album_tasks.clear()
+        _secondary_album_buffers.clear()
+
+
+async def secondary_send(text: str) -> None:
+    if _secondary_idx is None:
+        raise RuntimeError("No secondary account active")
+    await _clients[_secondary_idx].send_message(BOT_USERNAME, text)
+
+
+def secondary_idx() -> int | None:
+    return _secondary_idx
 
 
 async def find_and_rotate_to_profile_account() -> bool:

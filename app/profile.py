@@ -466,6 +466,14 @@ async def _process(messages: list[Message]) -> None:
             seen_count = db.bump_seen(profile_id)
             _archive_media(profile_id, downloaded)
 
+        if _is_auto_skip(description):
+            log.info("Auto-skip match: profile id=%s desc=%r", profile_id, description[:60])
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            await tg.send_reaction("👎")
+            state.current_profile = None
+            state.warning = False
+            return
+
         if _is_priority_match(description):
             log.info("PRIORITY MATCH: profile id=%s desc=%r", profile_id, description[:60])
             files = _publish_media(profile_id, downloaded, temp_dir)
@@ -474,14 +482,6 @@ async def _process(messages: list[Message]) -> None:
             state.warning = False
             state.letter_pending = False
             state.status_message = ""
-            return
-
-        if _is_auto_skip(description):
-            log.info("Auto-skip match: profile id=%s desc=%r", profile_id, description[:60])
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            await tg.send_reaction("👎")
-            state.current_profile = None
-            state.warning = False
             return
 
         reason = _auto_dislike_reason(description, seen_count)

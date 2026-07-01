@@ -24,6 +24,38 @@ log = logging.getLogger("leodv")
 
 
 _WATCHDOG_INTERVAL = 30  # sec — раз в полминуты проверяем что бот не молчит
+_RECOVERY_POLL_INTERVAL = 60  # sec — проверяем "зависшие" аккаунты раз в минуту
+
+
+async def _non_profile_recovery_poll() -> None:
+    """Periodically re-check accounts stuck in non-profile state.
+    After 60s they may have recovered; if one now has a profile, rotate to it."""
+    while True:
+        await asyncio.sleep(_RECOVERY_POLL_INTERVAL)
+        try:
+            if not state.warning or state.current_profile is not None or not state.non_profile_phones:
+                continue
+            log.info("Recovery poll: warning=True, non_profile_phones=%s — checking all accounts", state.non_profile_phones)
+            async with state.lock:
+                if not state.warning or state.current_profile is not None:
+                    continue
+                # Re-check all phones without skip — 60s may have passed and they could have recovered
+                rotated = await tg.find_and_rotate_to_profile_account(skip_phones=frozenset())
+                if rotated:
+                    new_phone = tg._phones[tg.current_idx()]
+                    state.active_account_idx = tg.current_idx()
+                    state.non_profile_phones.discard(new_phone)
+                    state.status_message = ""
+                    state.warning = False
+                    log.info("Recovery poll: rotated to phone=%s", new_phone)
+                    try:
+                        await tg.send_reaction("1")
+                    except Exception:
+                        log.exception("Recovery poll kickoff failed")
+                else:
+                    log.info("Recovery poll: still no account with profile")
+        except Exception:
+            log.exception("Recovery poll error")
 
 
 async def _watchdog() -> None:
@@ -87,6 +119,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         log.exception("Bootstrap failed")
     asyncio.create_task(_watchdog())
+    asyncio.create_task(_non_profile_recovery_poll())
     yield
     await tg.stop()
     try:

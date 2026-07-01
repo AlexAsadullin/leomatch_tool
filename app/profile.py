@@ -17,7 +17,7 @@ def _is_limit_message(text: str) -> bool:
     return "Слишком много" in text and "за сегодня" in text
 
 from . import db, dedup, limits as acct_limits, tg
-from .config import ARCHIVE_DIR, AUTO_SKIP_PATH, DB_PATH, MEDIA_DIR, PENDING_DIR, PRIORITY_PATH
+from .config import ARCHIVE_DIR, AUTO_SKIP_PATH, DB_PATH, MEDIA_DIR, NON_PROFILES_PATH, PENDING_DIR, PRIORITY_PATH
 from .hashing import hash_video_first_frame, sha256_file
 from .state import state
 
@@ -38,6 +38,23 @@ def _is_auto_skip(description: str) -> bool:
         return any(entry.lower() in description.lower() for entry in entries)
     except Exception:
         return False
+
+
+def _non_profile_reply(messages: list[Message]) -> str | None:
+    """Check all non-profile messages (newest first by date) against non_profiles.json keys.
+    Returns the reply string for the first matching key, or None."""
+    try:
+        mapping: dict[str, str] = json.loads(NON_PROFILES_PATH.read_text())
+        if not mapping:
+            return None
+        for msg in sorted(messages, key=lambda m: m.date, reverse=True):
+            text_lower = (msg.message or "").lower()
+            for key, reply in mapping.items():
+                if key.lower() in text_lower:
+                    return reply
+        return None
+    except Exception:
+        return None
 
 
 async def _deferred_letter(text: str) -> None:
@@ -78,38 +95,68 @@ async def _notify_all_limited(msg: str) -> None:
         log.exception("All-limited notification failed")
 
 
+async def _do_rotate_on_non_profile() -> None:
+    """Core non-profile rotation logic. Must be called while state.lock is held."""
+    current_phone = tg._phones[tg._current_idx] if tg._phones else ""
+    if current_phone:
+        state.non_profile_phones.add(current_phone)
+        log.info("Marked phone=%s as non-profile (total waiting: %s)", current_phone, state.non_profile_phones)
+
+    log.info("=== Checking other accounts for available profile (non-profile trigger) ===")
+    rotated = await tg.find_and_rotate_to_profile_account(skip_phones=frozenset(state.non_profile_phones))
+    if rotated:
+        state.active_account_idx = tg.current_idx()
+        new_phone = tg._phones[tg.current_idx()]
+        state.non_profile_phones.discard(new_phone)
+        log.info("Rotated to account index=%s phone=%s", tg.current_idx(), new_phone)
+        state.status_message = ""
+        state.warning = False
+        try:
+            await tg.send_reaction("1")
+            log.info("Sent kickoff '1' to bot on phone=%s", new_phone)
+        except Exception:
+            log.exception("Kickoff send failed on phone=%s", new_phone)
+        return
+    log.warning("No non-waiting account has a profile — will retry in 60s")
+    state.status_message = "Нет анкет ни на одном аккаунте — жду действий пользователя"
+    state.warning = True
+    try:
+        from tg_bot.bot import get_bot
+        bot = get_bot()
+        if bot:
+            asyncio.create_task(bot.notify_status(state.status_message))
+    except Exception:
+        log.exception("notify failed after non-profile rotation check")
+
+
 async def _deferred_rotate_on_non_profile() -> None:
-    """Check all other accounts for an available profile; rotate to the first that has one."""
+    """Check other accounts for an available profile; rotate to the first that has one."""
     async with state.lock:
         try:
-            log.info("=== Checking other accounts for available profile (non-profile trigger) ===")
-            rotated = await tg.find_and_rotate_to_profile_account()
-            if rotated:
-                state.active_account_idx = tg.current_idx()
-                new_phone = tg._phones[tg.current_idx()]
-                log.info("Rotated to account index=%s phone=%s", tg.current_idx(), new_phone)
-                state.status_message = ""
-                state.warning = False
-                try:
-                    await tg.send_reaction("1")
-                    log.info("Sent kickoff '1' to bot on phone=%s", new_phone)
-                except Exception:
-                    log.exception("Kickoff send failed on phone=%s", new_phone)
-                return
-            log.warning("No account has a profile available — waiting for user action")
-            state.status_message = "Нет анкет ни на одном аккаунте — жду действий пользователя"
-            state.warning = True
-            try:
-                from tg_bot.bot import get_bot
-                bot = get_bot()
-                if bot:
-                    asyncio.create_task(bot.notify_status(state.status_message))
-            except Exception:
-                log.exception("notify failed after non-profile rotation check")
+            await _do_rotate_on_non_profile()
         except Exception:
             log.exception("Non-profile account rotation failed")
             state.warning = True
             state.status_message = ""
+
+
+async def _deferred_wait_after_non_profile_reply() -> None:
+    """After replying to a non-profile message, wait 3s for a profile to arrive.
+    If none arrived, trigger account rotation as usual."""
+    await asyncio.sleep(3)
+    async with state.lock:
+        if state.current_profile is not None or state.warning:
+            # Profile arrived during the wait, or rotation already triggered elsewhere
+            return
+        log.info("No profile arrived after non-profile reply — triggering rotation")
+        try:
+            if state.auto_rotate_mode and len(tg._phones) > 1:
+                await _do_rotate_on_non_profile()
+            else:
+                state.warning = True
+        except Exception:
+            log.exception("Deferred wait after non-profile reply failed")
+            state.warning = True
 
 
 async def _deferred_rotate() -> None:
@@ -544,7 +591,16 @@ async def _process(messages: list[Message]) -> None:
         if state.letter_pending:
             log.info("Non-profile during letter flow — ignoring, waiting for profiles")
             return
-        log.info("Bot sent a non-profile message")
+        log.info("Bot sent a non-profile message(s): %s msg(s)", len(messages))
+        reply = _non_profile_reply(messages)
+        if reply:
+            log.info("Non-profile reply matched, sending: %r", reply)
+            await tg.send_reaction(reply)
+            state.current_profile = None
+            state.warning = False
+            # Don't rotate yet — wait 3s to see if the bot responds with a profile
+            asyncio.create_task(_deferred_wait_after_non_profile_reply())
+            return
         state.current_profile = None
         if state.auto_rotate_mode and len(tg._phones) > 1:
             state.status_message = "Не-анкета — проверяю другие аккаунты…"
@@ -578,6 +634,8 @@ async def _process(messages: list[Message]) -> None:
 
         from . import settings, stats
         active_phone = tg._phones[tg._current_idx] if tg._phones else ""
+        # Profile received — this account is no longer stuck in non-profile state
+        state.non_profile_phones.discard(active_phone)
 
         dup_id = dedup.find_duplicate(description, all_hashes)
         if dup_id is None:

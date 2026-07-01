@@ -29,6 +29,12 @@ _secondary_on_messages: Optional[OnMessages] = None
 _secondary_album_buffers: dict[int, list[Message]] = {}
 _secondary_album_tasks: dict[int, asyncio.Task] = {}
 
+# Text-only (non-media) messages are buffered for 3 seconds so that multiple
+# consecutive non-profile messages from the bot arrive together in one batch.
+_text_buffer: list[Message] = []
+_text_flush_task: Optional[asyncio.Task] = None
+_TEXT_BUFFER_DELAY = 3.0
+
 
 def active_client() -> TelegramClient:
     return _clients[_current_idx]
@@ -46,6 +52,18 @@ async def _dispatch(messages: list[Message]) -> None:
         await _on_messages(messages)
     except Exception:
         log.exception("on_messages handler failed")
+
+
+async def _flush_text_buffer() -> None:
+    global _text_flush_task
+    try:
+        await asyncio.sleep(_TEXT_BUFFER_DELAY)
+    finally:
+        msgs = _text_buffer.copy()
+        _text_buffer.clear()
+        _text_flush_task = None
+    if msgs:
+        await _dispatch(msgs)
 
 
 async def _flush_album(gid: int) -> None:
@@ -89,14 +107,21 @@ async def _secondary_event_handler(event) -> None:
 
 
 async def _event_handler(event) -> None:
+    global _text_flush_task
     msg: Message = event.message
     if msg.grouped_id:
         gid = msg.grouped_id
         _album_buffers.setdefault(gid, []).append(msg)
         if gid not in _album_tasks:
             _album_tasks[gid] = asyncio.create_task(_flush_album(gid))
-    else:
+    elif _msg_has_media(msg):
+        # Single media message (photo/video without album) — dispatch immediately
         await _dispatch([msg])
+    else:
+        # Text-only message: buffer for 3 seconds to collect the full burst
+        _text_buffer.append(msg)
+        if _text_flush_task is None:
+            _text_flush_task = asyncio.create_task(_flush_text_buffer())
 
 
 async def _connect_and_register(idx: int) -> None:
@@ -118,11 +143,16 @@ async def _disconnect_current() -> None:
         await c.disconnect()
     except Exception:
         log.exception("Error disconnecting account index=%s", _current_idx)
-    # cancel pending album tasks for old account
+    # cancel pending album and text-buffer tasks for old account
+    global _text_flush_task
     for task in list(_album_tasks.values()):
         task.cancel()
     _album_tasks.clear()
     _album_buffers.clear()
+    if _text_flush_task is not None:
+        _text_flush_task.cancel()
+        _text_flush_task = None
+    _text_buffer.clear()
 
 
 def _msg_has_media(m: Message) -> bool:
@@ -233,14 +263,18 @@ def secondary_idx() -> int | None:
     return _secondary_idx
 
 
-async def find_and_rotate_to_profile_account() -> bool:
+async def find_and_rotate_to_profile_account(skip_phones: frozenset[str] = frozenset()) -> bool:
     """Iterate non-current accounts, check if the latest bot message is a profile.
-    Rotates to the first account that has one. Returns True if rotated."""
+    Rotates to the first account that has one. Returns True if rotated.
+    skip_phones: phones known to be in non-profile state — excluded from consideration."""
     global _current_idx
     start_idx = _current_idx
     for offset in range(1, len(_clients)):
         idx = (start_idx + offset) % len(_clients)
         phone = _phones[idx]
+        if phone in skip_phones:
+            log.info("Account index=%s phone=%s in skip_phones — skipping", idx, phone)
+            continue
         sf = Path(str(session_path(phone)) + ".session")
         if not sf.exists():
             log.warning("No session file for index=%s, skipping", idx)

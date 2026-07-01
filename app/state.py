@@ -29,6 +29,9 @@ class AppState:
     letter_pending: bool = False
     last_message_at: float = field(default_factory=time.monotonic)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Phones that recently sent a non-profile; cleared when a real profile arrives on them.
+    # Used to prevent infinite rotation loops between accounts all stuck in non-profile state.
+    non_profile_phones: set[str] = field(default_factory=set)
 
     @property
     def age_filter_active(self) -> bool:

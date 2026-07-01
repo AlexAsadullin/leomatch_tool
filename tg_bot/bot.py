@@ -267,6 +267,13 @@ class TgBot:
         for m in profile.get("media", []):
             url = m.get("url", "")
             local = ROOT / url.lstrip("/")
+            if pid:
+                # _archive_media is called before auto-like, so archive is permanent.
+                # Primary dir gets purged by _purge_media when the next profile arrives,
+                # which can happen between exists() check and the actual send_file call.
+                archive = ROOT / "media" / "_archive" / str(pid) / local.name
+                if archive.exists():
+                    local = archive
             if local.exists():
                 media_paths.append(str(local))
 

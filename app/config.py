@@ -43,6 +43,7 @@ ARCHIVE_DIR = MEDIA_DIR / "_archive"
 STATIC_DIR = ROOT / "static"
 PRIORITY_PATH = APP_DIR / "highest_priority.json"
 AUTO_SKIP_PATH = APP_DIR / "auto_skip.json"
+NON_PROFILES_PATH = APP_DIR / "non_profiles.json"
 
 MEDIA_DIR.mkdir(exist_ok=True)
 PENDING_DIR.mkdir(exist_ok=True)
@@ -51,3 +52,5 @@ if not PRIORITY_PATH.exists():
     PRIORITY_PATH.write_text("[]")
 if not AUTO_SKIP_PATH.exists():
     AUTO_SKIP_PATH.write_text("[]")
+if not NON_PROFILES_PATH.exists():
+    NON_PROFILES_PATH.write_text("{}")
